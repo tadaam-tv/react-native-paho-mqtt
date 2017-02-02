@@ -1,6 +1,6 @@
 # Eclipse Paho JavaScript client forked for React Native
 
-A fork of [paho-client](https://www.npmjs.com/package/paho-client), this project exists to provide an ES6-ready, react-native compatible version of the Eclipse Paho client
+A fork of [paho-client](https://www.npmjs.com/package/paho-client), this project exists to provide an ES6-ready, Promise-based, react-native compatible version of the Eclipse Paho client
 
 ### Documentation
 
@@ -15,36 +15,45 @@ This requires the use of a broker that supports WebSockets natively, or the use 
 ```js
 import { Client, Message } from 'react-native-paho-mqtt';
 
+//Set up an in-memory alternative to global localStorage
+const myStorage = {
+  setItem: (key, item) => {
+    myStorage[key] = item;
+  },
+  getItem: (key) => myStorage[key],
+  removeItem: (key) => {
+    delete myStorage[key];
+  },
+};
+
 // Create a client instance
-client = new Client({ host: 'test.mosquitto.org', 8083, clientId: 'clientId' });
+client = new Client({ host: 'test.mosquitto.org', port: 8083, clientId: 'clientId', storage: myStorage });
 
 // set callback handlers
-client.onConnectionLost = onConnectionLost;
-client.onMessageArrived = onMessageArrived;
+client.onConnectionLost = (responseObject) => {
+    if (responseObject.errorCode !== 0) {
+      console.log("onConnectionLost:"+responseObject.errorMessage);
+    }
+};
+client.onMessageArrived = (message) => {
+    console.log("onMessageArrived:"+message.payloadString);
+};
 
 // connect the client
-client.connect({onSuccess:onConnect});
-
-
-// called when the client connects
-function onConnect() {
+client.connect().then(() => {
   // Once a connection has been made, make a subscription and send a message.
   console.log("onConnect");
-  client.subscribe("World");
+  return client.subscribe("World");
+})
+.then(() => {
   message = new Message("Hello");
   message.destinationName = "World";
   client.send(message);
-}
-
-// called when the client loses its connection
-function onConnectionLost(responseObject) {
+});
+.catch((responseObject) => {
   if (responseObject.errorCode !== 0) {
     console.log("onConnectionLost:"+responseObject.errorMessage);
   }
-}
+});
 
-// called when a message arrives
-function onMessageArrived(message) {
-  console.log("onMessageArrived:"+message.payloadString);
-}
 ```

@@ -1,3 +1,4 @@
+require('./hacks');
 var settings = require('./client-harness');
 
 var testServer = settings.server;
@@ -338,9 +339,11 @@ describe('BasicTest', function() {
 			message.qos = 1;
 		}).not.toThrow();
 
-    expect(function(){
-      message.payloadString = 'not allowed to set payload';
-    }).toThrow();
+    console.log('Check payload');
+    var strPayload = 'payload is a string';
+    message.payloadString = strPayload;
+    console.log('not allowed to set payload');
+    expect(message.payloadString).not.toEqual(strPayload);
 
 		console.log('Check retained');
 		message.retained = false;

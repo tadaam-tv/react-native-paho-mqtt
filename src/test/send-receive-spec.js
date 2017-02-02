@@ -1,3 +1,4 @@
+require('./hacks');
 var settings = require('./client-harness');
 
 var testServer = settings.server;

@@ -731,9 +731,9 @@ var Timeout = function (client, window, timeoutSeconds, action, args) {
  * @param {String} clientId the MQ client identifier.
  * @param {Object} optional object implementing getItem, setItem, removeItem in a manner compatible with localStorage
  */
-var ClientImpl = function (uri, host, port, path, clientId, storage) {
+var ClientImpl = function (uri, host, port, path, clientId, storage, ws) {
   // Check dependencies are satisfied in this browser.
-  if (!(window.hasOwnProperty('WebSocket'))) {
+  if (!ws && !(window.hasOwnProperty('WebSocket'))) {
     throw new Error(format(ERROR.UNSUPPORTED, ["WebSocket"]));
   }
   if (!storage && !(window.hasOwnProperty('localStorage'))) {
@@ -750,7 +750,8 @@ var ClientImpl = function (uri, host, port, path, clientId, storage) {
   this.path = path;
   this.uri = uri;
   this.clientId = clientId;
-  this.storage = storage || storage;
+  this.storage = storage || window.localStorage;
+  this.webSocket = ws || window.WebSocket;
 
   // Local storagekeys are qualified with the following string.
   // The conditional inclusion of path in the key is for backward
@@ -796,6 +797,7 @@ ClientImpl.prototype.path;
 ClientImpl.prototype.uri;
 ClientImpl.prototype.clientId;
 ClientImpl.prototype.storage;
+ClientImpl.prototype.webSocket;
 
 // Messaging Client private instance members.
 ClientImpl.prototype.socket;
@@ -976,9 +978,9 @@ ClientImpl.prototype._doConnect = function (wsurl) {
   }
   this.connected = false;
   if (this.connectOptions.mqttVersion < 4) {
-    this.socket = new WebSocket(wsurl, ["mqttv3.1"]);
+    this.socket = new this.webSocket(wsurl, ["mqttv3.1"]);
   } else {
-    this.socket = new WebSocket(wsurl, ["mqtt"]);
+    this.socket = new this.webSocket(wsurl, ["mqtt"]);
   }
   this.socket.binaryType = 'arraybuffer';
 
@@ -1577,7 +1579,7 @@ ClientImpl.prototype._traceMask = function (traceObject, masked) {
  *                            <li>{@link Message} that has arrived.
  *                            </ol>
  */
-export const Client = function ({ host, port, path = '/mqtt', clientId, storage }) {
+export const Client = function ({ host, port, path = '/mqtt', clientId, storage, webSocket }) {
 
   var uri;
 
@@ -1619,7 +1621,7 @@ export const Client = function ({ host, port, path = '/mqtt', clientId, storage 
   if (typeof clientId !== "string" || clientIdLength > 65535)
     throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, "clientId"]));
 
-  var client = new ClientImpl(uri, host, port, path, clientId, storage);
+  var client = new ClientImpl(uri, host, port, path, clientId, storage, webSocket);
   this._getHost = function () {
     return host;
   };
@@ -1748,9 +1750,6 @@ export const Client = function ({ host, port, path = '/mqtt', clientId, storage 
       keepAliveInterval: "number",
       cleanSession: "boolean",
       useSSL: "boolean",
-      invocationContext: "object",
-      onSuccess: "function",
-      onFailure: "function",
       hosts: "object",
       ports: "object",
       mqttVersion: "number",
@@ -1836,7 +1835,12 @@ export const Client = function ({ host, port, path = '/mqtt', clientId, storage 
       }
     }
 
-    client.connect(connectOptions);
+
+    return new Promise((resolve, reject) => {
+      connectOptions.onSuccess = resolve;
+      connectOptions.onFailure = reject;
+      client.connect(connectOptions);
+    });
   };
 
   /**
@@ -1877,17 +1881,18 @@ export const Client = function ({ host, port, path = '/mqtt', clientId, storage 
     subscribeOptions = subscribeOptions || {};
     validate(subscribeOptions, {
       qos: "number",
-      invocationContext: "object",
-      onSuccess: "function",
-      onFailure: "function",
       timeout: "number"
     });
-    if (subscribeOptions.timeout && !subscribeOptions.onFailure)
-      throw new Error("subscribeOptions.timeout specified with no onFailure callback.");
+
     if (typeof subscribeOptions.qos !== "undefined"
       && !(subscribeOptions.qos === 0 || subscribeOptions.qos === 1 || subscribeOptions.qos === 2 ))
       throw new Error(format(ERROR.INVALID_ARGUMENT, [subscribeOptions.qos, "subscribeOptions.qos"]));
-    client.subscribe(filter, subscribeOptions);
+
+    return new Promise((resolve, reject) => {
+      subscribeOptions.onSuccess = resolve;
+      subscribeOptions.onFailure = reject;
+      client.subscribe(filter, subscribeOptions);
+    });
   };
 
   /**
