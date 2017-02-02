@@ -27,7 +27,7 @@ const myStorage = {
 };
 
 // Create a client instance
-client = new Client({ host: 'test.mosquitto.org', port: 8083, clientId: 'clientId', storage: myStorage });
+const client = new Client({ host: 'iot.eclipse.org', port: 80, path: '/ws', clientId: 'clientId', storage: myStorage });
 
 // set callback handlers
 client.onConnectionLost = (responseObject) => {
@@ -40,20 +40,22 @@ client.onMessageArrived = (message) => {
 };
 
 // connect the client
-client.connect().then(() => {
-  // Once a connection has been made, make a subscription and send a message.
-  console.log("onConnect");
-  return client.subscribe("World");
-})
-.then(() => {
-  message = new Message("Hello");
-  message.destinationName = "World";
-  client.send(message);
-});
-.catch((responseObject) => {
-  if (responseObject.errorCode !== 0) {
-    console.log("onConnectionLost:"+responseObject.errorMessage);
-  }
-});
+client.connect()
+    .then(() => {
+      // Once a connection has been made, make a subscription and send a message.
+      console.log("onConnect");
+      return client.subscribe("World");
+    })
+    .then(() => {
+      message = new Message("Hello");
+      message.destinationName = "World";
+      client.send(message);
+    })
+    .catch((responseObject) => {
+      if (responseObject.errorCode !== 0) {
+        console.log("onConnectionLost:"+responseObject.errorMessage);
+      }
+    })
+;
 
 ```
