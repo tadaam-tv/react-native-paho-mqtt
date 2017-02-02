@@ -1,9 +1,30 @@
 {
-	"name": "paho-client",
-	"description": "Pre reqs for the Paho JS client",
-	"dependencies": {
-		"websocket": "1.x.x",
-		"node-localstorage": "0.x.x",
-		"jasmine-node": "1.11.x"
-	}
+  "name": "react-native-paho-mqtt",
+  "description": "A fork of the Paho javascript client for use in React Native",
+  "scripts": {
+    "build": "babel src -d target",
+    "test": "jest"
+  },
+  "main": "src/mqttws31.js",
+  "license" : "SEE LICENSE IN epl-v10",
+  "dependencies": {},
+  "devDependencies": {
+    "babel": "^6.5.2",
+    "babel-cli": "^6.22.2",
+    "babel-jest": "^18.0.0",
+    "babel-preset-es2015": "^6.22.0",
+    "jest-cli": "^18.1.0",
+    "node-localstorage": "^1.3.0",
+    "websocket": "^1.0.24"
+  },
+  "jest": {
+    "transform": {
+      ".*": "<rootDir>/node_modules/babel-jest"
+    },
+    "moduleFileExtensions": [
+      "js",
+      "json"
+    ],
+    "testRegex": "/src/test/.*-spec\\.js$"
+  }
 }

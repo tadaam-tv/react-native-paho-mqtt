@@ -28,7 +28,7 @@ describe('client', function() {
 	};
 
 	it('should create a new client', function() {
-		client = new Paho.MQTT.Client(testServer, testPort, testPath, "testclientid");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: "testclientid" });
 		client.onMessageArrived = messageArrived;
 
 		expect(client).not.toBe(null);

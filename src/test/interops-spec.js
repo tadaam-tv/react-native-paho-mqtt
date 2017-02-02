@@ -82,7 +82,7 @@ describe('InteropsTests', function() {
 	};
 
 	it('should connect, disconnect, subscribe, publish and receive messages', function() {
-		client = new Paho.MQTT.Client(testServer, testPort, testPath, "testclientid-js");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: "testclientid-js" });
 		client.onMessageArrived = callbacks.onMessageArrived;
 		client.onMessageDelivered = callbacks.onMessageDelivered;
 
@@ -160,7 +160,7 @@ describe('InteropsTests', function() {
 
 	it('should connect, attempt to connect again and fail', function() {
 		var exception = false;
-		client = new Paho.MQTT.Client(testServer, testPort, testPath, "testclientid-js");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: "testclientid-js" });
 		expect(client).not.toBe(null);
 
 		runs(function() {
@@ -189,7 +189,7 @@ describe('InteropsTests', function() {
 	});
 
 	it('should connect successfully with a 0 length clientid with cleansession true', function() {
-		client = new Paho.MQTT.Client(testServer, testPort, testPath, "");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: "" });
 		expect(client).not.toBe(null);
 
 		runs(function() {
@@ -218,7 +218,7 @@ describe('InteropsTests', function() {
 		var failCallback = function(err) {
 			connectFail = true;
 		}
-		client = new Paho.MQTT.Client(testServer, testPort, testPath, "");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: "" });
 		expect(client).not.toBe(null);
 
 		runs(function() {

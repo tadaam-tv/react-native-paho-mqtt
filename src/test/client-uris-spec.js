@@ -34,7 +34,7 @@ describe('client-uris', function() {
 	};
 
 	it('should create a new client with a default path', function() {
-		client = new Paho.MQTT.Client(testServer, testPort, "testclientid");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, clientId: "testclientid" });
 		
 		expect(client).not.toBe(null);
 		expect(client.host).toBe(testServer);
@@ -44,7 +44,7 @@ describe('client-uris', function() {
 	});
 	
 	it('should create a new client with a path', function() {
-		client = new Paho.MQTT.Client(testServer, testPort, testPath, "testclientid");
+		client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: "testclientid" });
 
 		expect(client).not.toBe(null);
 		expect(client.host).toBe(testServer);
@@ -53,7 +53,7 @@ describe('client-uris', function() {
 	});
 	
 	it('should create a new client with a uri', function() {
-		client = new Paho.MQTT.Client("ws://"+testServer+":"+testPort+testPath, "testclientid");
+		client = new Paho.MQTT.Client({ host: "ws://"+testServer+":"+testPort+testPath, clientId: "testclientid" });
 
 		expect(client).not.toBe(null);
 		expect(client.host).toBe(testServer);
@@ -65,7 +65,7 @@ describe('client-uris', function() {
         client = null;
         var error;
 	    try {
-            client = new Paho.MQTT.Client("http://example.com", "testclientid");
+            client = new Paho.MQTT.Client({ host: "http://example.com", clientId: "testclientid" });
         } catch(err) {
             error = err;
         }
@@ -110,7 +110,7 @@ describe('client-uris', function() {
 	*/
 	
 	it('should connect and disconnect to a server using connectoptions hosts', function() {
-        client = new Paho.MQTT.Client(testServer, testPort, "testclientid");
+        client = new Paho.MQTT.Client({ host: testServer, port: testPort, clientId: "testclientid" });
         expect(client).not.toBe(null);
 
 		client.onMessageArrived = messageArrived;

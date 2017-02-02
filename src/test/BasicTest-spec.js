@@ -102,7 +102,7 @@ describe('BasicTest', function() {
 	});
 	*/
 	it('it should create and connect and disconnect to a server.', function() {
-		var client = new Paho.MQTT.Client(testServer, testPort, testPath, genStr(clientId));
+		var client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: genStr(clientId) });
 		client.onConnectionLost = onConnectionLost;
 		expect(client).not.toBe(null);
 
@@ -145,7 +145,7 @@ describe('BasicTest', function() {
 	});
 
 	it('it should fallback from MQTTv3.1.1 to v3.1',function(){
-		var client = new Paho.MQTT.Client(testServer, testPort, testPath, genStr(clientId));
+		var client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: genStr(clientId) });
 		client.onConnectionLost = onConnectionLost;
 		expect(client).not.toBe(null);
 
@@ -178,7 +178,7 @@ describe('BasicTest', function() {
 		var arrHosts = ['localhost',testServer,];
 		var arrPorts = [2000,testPort];
 
-		var client = new Paho.MQTT.Client(defaultServer, defaultPort, testPath, genStr(clientId) );
+		var client = new Paho.MQTT.Client({ host: defaultServer, port: defaultPort, path: testPath, clientId: genStr(clientId) });
 		client.onConnectionLost = onConnectionLost;
 		expect(client).not.toBe(null);
 
@@ -207,7 +207,7 @@ describe('BasicTest', function() {
 
 	it('it should publish and subscribe.',function(){
 
-		var client = new Paho.MQTT.Client(testServer, testPort, testPath, genStr(clientId));
+		var client = new Paho.MQTT.Client({ host: testServer, port: testPort, path: testPath, clientId: genStr(clientId) });
 		client.onMessageArrived = messageArrived;
 		client.onMessageDelivered = messageDelivered;
 
@@ -338,11 +338,9 @@ describe('BasicTest', function() {
 			message.qos = 1;
 		}).not.toThrow();
 
-		console.log('Check payload');
-		var strPayload = 'payload is a string';
-		message.payloadString = strPayload;
-		console.log('not allowed to set payload');
-		expect(message.payloadString).not.toEqual(strPayload);
+    expect(function(){
+      message.payloadString = 'not allowed to set payload';
+    }).toThrow();
 
 		console.log('Check retained');
 		message.retained = false;
