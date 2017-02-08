@@ -4,6 +4,7 @@
   "version": "0.0.3",
   "scripts": {
     "flow": "flow",
+    "jest": "jest",
     "test": "flow && jest"
   },
   "main": "src/mqttws31.js",

@@ -1,5 +1,6 @@
-import { Client, Message } from "../mqttws31";
+import { Client } from "../../";
 import * as settings from './client-harness';
+import Message from "../Message";
 
 const client = new Client({
   host: settings.server,
@@ -17,7 +18,11 @@ test('client is set up correctly', function () {
 });
 
 describe('Integration tests', () => {
-  beforeAll(() => client.connect({ mqttVersion: settings.mqttVersion }));
+  beforeAll(() => {
+    return settings.startBroker().then(() =>
+      client.connect({ mqttVersion: settings.mqttVersion })
+    )
+  });
 
   test('should send and receive a message', function (done) {
     client.onMessageArrived = (message) => {
@@ -27,11 +32,10 @@ describe('Integration tests', () => {
     message = new Message("Hello");
     message.destinationName = "/World";
     client.subscribe("/World").then(() => client.send(message));
-    client.send(message);
   });
 
   afterAll((done) => {
     client.disconnect();
-    done();
+    return settings.stopBroker();
   });
 });

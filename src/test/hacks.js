@@ -1,4 +1,4 @@
-import { Client, Message } from "../mqttws31";
+import { Client, Message } from "../..";
 
 global.window = global;
 global.Paho = {
@@ -45,4 +45,4 @@ global.WebSocket = require('websocket').w3cwebsocket;
 var LocalStorage = require('node-localstorage').LocalStorage;
 global.localStorage = new LocalStorage('./persistence');
 
-require("../mqttws31");
+require("../Client");
