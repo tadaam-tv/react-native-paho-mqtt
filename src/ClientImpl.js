@@ -251,7 +251,7 @@ ClientImpl.prototype.subscribe = function (filter, subscribeOptions) {
   }
 
   if (subscribeOptions.timeout) {
-    wireMessage.timeOut = new Timeout(this, window, subscribeOptions.timeout, subscribeOptions.onFailure
+    wireMessage.timeOut = new Timeout(this, subscribeOptions.timeout, subscribeOptions.onFailure
       , [{
         invocationContext: subscribeOptions.invocationContext,
         errorCode: ERROR.SUBSCRIBE_TIMEOUT.code,
@@ -280,7 +280,7 @@ ClientImpl.prototype.unsubscribe = function (filter, unsubscribeOptions) {
     };
   }
   if (unsubscribeOptions.timeout) {
-    wireMessage.timeOut = new Timeout(this, window, unsubscribeOptions.timeout, unsubscribeOptions.onFailure
+    wireMessage.timeOut = new Timeout(this, unsubscribeOptions.timeout, unsubscribeOptions.onFailure
       , [{
         invocationContext: unsubscribeOptions.invocationContext,
         errorCode: ERROR.UNSUBSCRIBE_TIMEOUT.code,
@@ -369,10 +369,10 @@ ClientImpl.prototype._doConnect = function (wsurl) {
   this.socket.onerror = scope(this._on_socket_error, this);
   this.socket.onclose = scope(this._on_socket_close, this);
 
-  this.sendPinger = new Pinger(this, window, this.connectOptions.keepAliveInterval);
-  this.receivePinger = new Pinger(this, window, this.connectOptions.keepAliveInterval);
+  this.sendPinger = new Pinger(this, this.connectOptions.keepAliveInterval);
+  this.receivePinger = new Pinger(this, this.connectOptions.keepAliveInterval);
 
-  this._connectTimeout = new Timeout(this, window, this.connectOptions.timeout, this._disconnected, [ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT)]);
+  this._connectTimeout = new Timeout(this, this.connectOptions.timeout, this._disconnected, [ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT)]);
 };
 
 

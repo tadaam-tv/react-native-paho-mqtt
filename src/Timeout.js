@@ -5,7 +5,6 @@
 
 export default class Timeout {
   constructor(client, window, timeoutSeconds, action, args) {
-    this._window = window;
     if (!timeoutSeconds)
       timeoutSeconds = 30;
 
@@ -15,6 +14,6 @@ export default class Timeout {
   }
 
   cancel() {
-    this._window.clearTimeout(this.timeout);
+    clearTimeout(this.timeout);
   }
 }
