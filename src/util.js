@@ -11,15 +11,10 @@ export function format(error, substitutions) {
   let text = error.text;
   if (substitutions) {
     let field, start;
-    for (const i = 0; i < substitutions.length; i++) {
+    substitutions.forEach((substitution, i) => {
       field = "{" + i + "}";
-      start = text.indexOf(field);
-      if (start > 0) {
-        const part1 = text.substring(0, start);
-        const part2 = text.substring(start + field.length);
-        text = part1 + substitutions[i] + part2;
-      }
-    }
+      text = text.replace(field, substitution);
+    });
   }
   return text;
 }
@@ -35,20 +30,15 @@ export function format(error, substitutions) {
  * @private
  */
 export function validate(obj, keys) {
-  for (let key in obj) {
-    if (obj.hasOwnProperty(key)) {
-      if (keys.hasOwnProperty(key)) {
-        if (typeof obj[key] !== keys[key])
-          throw new Error(format(ERROR.INVALID_TYPE, [typeof obj[key], key]));
-      } else {
-        let errorStr = "Unknown property, " + key + ". Valid properties are:";
-        for (let key in keys)
-          if (keys.hasOwnProperty(key))
-            errorStr = errorStr + " " + key;
-        throw new Error(errorStr);
+  Object.keys(obj).forEach(key => {
+    if (keys.hasOwnProperty(key)) {
+      if (typeof obj[key] !== keys[key]) {
+        throw new Error(format(ERROR.INVALID_TYPE, [typeof obj[key], key]));
       }
+    } else {
+      throw new Error('Unknown property, ' + key + '. Valid properties are: ' + Object.keys(keys).join(' '));
     }
-  }
+  });
 }
 
 export function writeUint16(input, buffer, offset) {
