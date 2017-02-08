@@ -2,16 +2,11 @@ import { Server } from "mosca";
 
 let broker = null;
 
-function ensureValue(prop, value) {
-  if (prop == "" || prop[0] == "$") {
-    return value;
-  }
-  return prop;
-}
+const PORT = 3005;
 
 export const startBroker = () => new Promise((resolve, reject) => {
   broker = new Server({
-    port: 1883,
+    port: 18830,
     backend: {
       //using ascoltatore
       type: 'mongo',
@@ -20,7 +15,7 @@ export const startBroker = () => new Promise((resolve, reject) => {
       mongo: {}
     },
     http: {
-      port: 3000,
+      port: PORT,
       bundle: true,
       static: './'
     }
@@ -38,12 +33,9 @@ export const stopBroker = () => {
   return Promise.resolve();
 };
 
-export const server = ensureValue("${test.server}", "localhost");
-export const port = parseInt(ensureValue("${test.server.port}", "3000"));
-export const path = ensureValue("${test.server.path}", "/");
+export const host = 'localhost';
+export const port = PORT;
+export const path = '/';
 export const webSocket = require('websocket').w3cwebsocket;
 export const storage = require('node-localstorage');
-export const mqttVersion = parseInt(ensureValue("${test.server.mqttVersion}", "3"));
-export const interopServer = ensureValue("${test.interopServer}", "iot.eclipse.org");
-export const interopPort = parseInt(ensureValue("${test.interopPort}", "80"));
-export const interopPath = ensureValue("${test.interopPath}", "/ws");
+export const mqttVersion = 3;

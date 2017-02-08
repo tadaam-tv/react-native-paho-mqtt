@@ -4,11 +4,11 @@
  */
 
 export default class Timeout {
-  constructor(client, window, timeoutSeconds, action, args) {
-    if (!timeoutSeconds)
-      timeoutSeconds = 30;
+  constructor(client, timeoutMs, action, args) {
+    if (!timeoutMs)
+      timeoutMs = 30000;
 
-    this.timeout = setTimeout(() => action.apply(client, args), timeoutSeconds * 1000);
+    this.timeout = setTimeout(() => action.apply(client, args), timeoutMs);
 
     this.cancel.bind(this);
   }

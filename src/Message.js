@@ -1,4 +1,5 @@
 import { format, lengthOfUTF8, encodeMBI, parseUTF8, stringToUTF8, writeString, writeUint16, readUint16 } from "./util";
+import { ERROR } from "./constants";
 
 /**
  * An application message, sent or received.
@@ -36,8 +37,7 @@ import { format, lengthOfUTF8, encodeMBI, parseUTF8, stringToUTF8, writeString, 
  */
 export default class {
   constructor(newPayload) {
-    var payload;
-    if (typeof newPayload === "string"
+    if (!(typeof newPayload === "string"
       || newPayload instanceof ArrayBuffer
       || newPayload instanceof Int8Array
       || newPayload instanceof Uint8Array
@@ -47,11 +47,11 @@ export default class {
       || newPayload instanceof Uint32Array
       || newPayload instanceof Float32Array
       || newPayload instanceof Float64Array
-    ) {
-      payload = newPayload;
-    } else {
+    )) {
       throw (format(ERROR.INVALID_ARGUMENT, [newPayload, "newPayload"]));
     }
+
+    const payload = newPayload;
 
     this._getPayloadString = function () {
       if (typeof payload === "string")
@@ -62,18 +62,17 @@ export default class {
 
     this._getPayloadBytes = function () {
       if (typeof payload === "string") {
-        var buffer = new ArrayBuffer(lengthOfUTF8(payload));
-        var byteStream = new Uint8Array(buffer);
+        const buffer = new ArrayBuffer(lengthOfUTF8(payload));
+        const byteStream = new Uint8Array(buffer);
         stringToUTF8(payload, byteStream, 0);
 
         return byteStream;
       } else {
         return payload;
       }
-      ;
     };
 
-    var destinationName = undefined;
+    let destinationName = undefined;
     this._getDestinationName = function () {
       return destinationName;
     };
@@ -84,7 +83,7 @@ export default class {
         throw new Error(format(ERROR.INVALID_ARGUMENT, [newDestinationName, "newDestinationName"]));
     };
 
-    var qos = 0;
+    let qos = 0;
     this._getQos = function () {
       return qos;
     };
@@ -95,7 +94,7 @@ export default class {
         throw new Error("Invalid argument:" + newQos);
     };
 
-    var retained = false;
+    let retained = false;
     this._getRetained = function () {
       return retained;
     };
@@ -106,7 +105,7 @@ export default class {
         throw new Error(format(ERROR.INVALID_ARGUMENT, [newRetained, "newRetained"]));
     };
 
-    var duplicate = false;
+    let duplicate = false;
     this._getDuplicate = function () {
       return duplicate;
     };

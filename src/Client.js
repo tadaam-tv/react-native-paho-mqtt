@@ -275,8 +275,8 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    * @param {Message} connectOptions.willMessage - sent by the server when the client
    *                    disconnects abnormally.
    * @param {Number} connectOptions.keepAliveInterval - the server disconnects this client if
-   *                    there is no activity for this number of seconds.
-   *                    The default value of 60 seconds is assumed if not set.
+   *                    there is no activity for this number of milliseconds.
+   *                    The default value of 60,000ms is assumed if not set.
    * @param {boolean} connectOptions.cleanSession - if true(default) the client and server
    *                    persistent state is deleted on successful connect.
    * @param {boolean} connectOptions.useSSL - if present and true, use an SSL Websocket connection.
@@ -322,7 +322,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
 
     // If no keep alive interval is set, assume 60 seconds.
     if (connectOptions.keepAliveInterval === undefined)
-      connectOptions.keepAliveInterval = 60;
+      connectOptions.keepAliveInterval = 60000;
 
     if (connectOptions.mqttVersion > 4 || connectOptions.mqttVersion < 3) {
       throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.mqttVersion, "connectOptions.mqttVersion"]));
@@ -560,7 +560,16 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    * @throws {InvalidState} if the client is already disconnected.
    */
   this.disconnect = function () {
-    client.disconnect();
+    return new Promise((resolve, reject) => {
+      client.onConnectionLost = (error) => {
+        client.onConnectionLost = null;
+        if (error && error.errorCode !== 0) {
+          return reject(error);
+        }
+        resolve();
+      };
+      client.disconnect();
+    });
   };
 
   /**

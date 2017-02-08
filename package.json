@@ -1,14 +1,21 @@
 {
   "name": "react-native-paho-mqtt",
   "description": "A fork of the Paho javascript client for use in React Native",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "scripts": {
     "flow": "flow",
     "jest": "jest",
     "test": "flow && jest"
   },
-  "main": "src/mqttws31.js",
+  "homepage": "https://github.com/rh389/paho.mqtt.javascript",
   "license": "SEE LICENSE IN epl-v10",
+  "keywords": [
+    "mqtt",
+    "react-native",
+    "paho",
+    "client"
+  ],
+  "repository": "rh389/paho.mqtt.javascript",
   "dependencies": {},
   "devDependencies": {
     "babel": "^6.5.2",

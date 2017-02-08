@@ -27,13 +27,11 @@ import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from "./co
  * @ignore
  */
 export default class {
-  constructor(type, options) {
+  constructor(type, options = {}) {
     this.type = type;
-    for (let name in options) {
-      if (options.hasOwnProperty(name)) {
-        this[name] = options[name];
-      }
-    }
+    Object.keys(options).forEach((name) => {
+      this[name] = options[name];
+    });
     this.encode.bind(this);
   }
 
