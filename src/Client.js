@@ -22,8 +22,8 @@ import { ERROR } from "./constants";
 /**
  * Send and receive messages using web browsers.
  * <p>
- * This programming interface lets a JavaScript client application use the MQTT V3.1 or
- * V3.1.1 protocol to connect to an MQTT-supporting messaging server.
+ * This programming interface lets a JavaScript client application use the MQTT V3.1.x or
+ * V4 protocol to connect to an MQTT-supporting messaging server.
  *
  * The function supported includes:
  * <ol>
@@ -42,7 +42,7 @@ import { ERROR } from "./constants";
  * arrives from or is delivered to the messaging server,
  * or when the status of its connection to the messaging server changes.</dd>
  * <dt><b>{@link Message}</b></dt>
- * <dd>This encapsulates the payload of the message along with letious attributes
+ * <dd>This encapsulates the payload of the message along with various attributes
  * associated with its delivery, in particular the destination to which it has
  * been (or is about to be) sent.</dd>
  * </dl>
@@ -169,7 +169,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
     if (typeof path !== "string")
       throw new Error(format(ERROR.INVALID_TYPE, [typeof path, "path"]));
 
-    let ipv6AddSBracket = (host.indexOf(":") != -1 && host.slice(0, 1) != "[" && host.slice(-1) != "]");
+    const ipv6AddSBracket = (host.indexOf(":") !== -1 && host.slice(0, 1) !== "[" && host.slice(-1) !== "]");
     uri = "ws://" + (ipv6AddSBracket ? "[" + host + "]" : host) + ":" + port + path;
   }
 
@@ -266,143 +266,104 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    *
    * @name Client#connect
    * @function
-   * @param {Object} connectOptions - attributes used with the connection.
-   * @param {number} connectOptions.timeout - If the connect has not succeeded within this
-   *                    number of seconds, it is deemed to have failed.
-   *                    The default is 30 seconds.
-   * @param {string} connectOptions.userName - Authentication username for this connection.
-   * @param {string} connectOptions.password - Authentication password for this connection.
-   * @param {Message} connectOptions.willMessage - sent by the server when the client
-   *                    disconnects abnormally.
-   * @param {Number} connectOptions.keepAliveInterval - the server disconnects this client if
-   *                    there is no activity for this number of milliseconds.
-   *                    The default value of 60,000ms is assumed if not set.
-   * @param {boolean} connectOptions.cleanSession - if true(default) the client and server
-   *                    persistent state is deleted on successful connect.
-   * @param {boolean} connectOptions.useSSL - if present and true, use an SSL Websocket connection.
-   * @param {object} connectOptions.invocationContext - passed to the onSuccess callback or onFailure callback.
-   * @param {function} connectOptions.onSuccess - called when the connect acknowledgement
-   *                    has been received from the server.
-   * A single response object parameter is passed to the onSuccess callback containing the following fields:
-   * <ol>
-   * <li>invocationContext as passed in to the onSuccess method in the connectOptions.
-   * </ol>
-   * @config {function} [onFailure] called when the connect request has failed or timed out.
-   * A single response object parameter is passed to the onFailure callback containing the following fields:
-   * <ol>
-   * <li>invocationContext as passed in to the onFailure method in the connectOptions.
-   * <li>errorCode a number indicating the nature of the error.
-   * <li>errorMessage text describing the error.
-   * </ol>
-   * @config {Array} [hosts] If present this contains either a set of hostnames or fully qualified
-   * WebSocket URIs (ws://example.com:1883/mqtt), that are tried in order in place
-   * of the host and port paramater on the construtor. The hosts are tried one at at time in order until
-   * one of then succeeds.
-   * @config {Array} [ports] If present the set of ports matching the hosts. If hosts contains URIs, this property
-   * is not used.
-   * @throws {InvalidState} if the client is not in disconnected state. The client must have received connectionLost
-   * or disconnected before calling connect for a second or subsequent time.
+   * @param {number} [timeout=30000] - Fail if not connected within this time
+   * @param {string} [userName] - Authentication username for this connection.
+   * @param {string} [password] - Authentication password for this connection.
+   * @param {Message} [willMessage] - sent by the server when the client disconnects abnormally.
+   * @param {number} [keepAliveInterval=60000] - ping the server every n ms to avoid being disconnected by the remote end.
+   * @param {number} [mqttVersion=4] - protocol version to use (3 or 4).
+   * @param {number} [allowMqttVersionFallback=true] - if mqttVersion==4 and connecting fails, try version 3.
+   * @param {boolean} [cleanSession=true] - if true the client and server persistent state is deleted on successful connect.
+   * @param {boolean} [useSSL=false] - use an SSL Websocket connection if true.
+   * @param {string[]} [uris] If present this contains either a set of fully qualified
+   *  WebSocket URIs (ws://example.com:1883/mqtt), that are tried in order in place
+   *  of the constructor's configuration. The hosts are tried one at at time in order until
+   *  one of them succeeds.
    */
-  this.connect = function (connectOptions) {
-    connectOptions = connectOptions || {};
-    validate(connectOptions, {
+  this.connect = function ({
+    userName,
+    password,
+    willMessage,
+    timeout = 30000,
+    keepAliveInterval = 60000,
+    useSSL = false,
+    cleanSession = true,
+    mqttVersion = 4,
+    allowMqttVersionFallback = true,
+    uris
+  } = {}) {
+    validate({
+      userName,
+      password,
+      willMessage,
+      timeout,
+      keepAliveInterval,
+      useSSL,
+      cleanSession,
+      mqttVersion,
+      allowMqttVersionFallback,
+      uris
+    }, {
       timeout: "number",
-      userName: "string",
-      password: "string",
-      willMessage: "object",
+      userName: "?string",
+      password: "?string",
+      willMessage: "?object",
       keepAliveInterval: "number",
       cleanSession: "boolean",
       useSSL: "boolean",
-      hosts: "object",
-      ports: "object",
       mqttVersion: "number",
-      mqttVersionExplicit: "boolean",
-      uris: "object"
+      allowMqttVersionFallback: "boolean",
+      uris: "?object"
     });
 
-    // If no keep alive interval is set, assume 60 seconds.
-    if (connectOptions.keepAliveInterval === undefined)
-      connectOptions.keepAliveInterval = 60000;
-
-    if (connectOptions.mqttVersion > 4 || connectOptions.mqttVersion < 3) {
-      throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.mqttVersion, "connectOptions.mqttVersion"]));
-    }
-
-    if (connectOptions.mqttVersion === undefined) {
-      connectOptions.mqttVersionExplicit = false;
-      connectOptions.mqttVersion = 4;
-    } else {
-      connectOptions.mqttVersionExplicit = true;
-    }
-
-    //Check that if password is set, so is username
-    if (connectOptions.password !== undefined && connectOptions.userName === undefined)
-      throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.password, "connectOptions.password"]))
-
-    if (connectOptions.willMessage) {
-      if (!(connectOptions.willMessage instanceof Message))
-        throw new Error(format(ERROR.INVALID_TYPE, [connectOptions.willMessage, "connectOptions.willMessage"]));
-      // The will message must have a payload that can be represented as a string.
-      // Cause the willMessage to throw an exception if this is not the case.
-      connectOptions.willMessage.stringPayload;
-
-      if (typeof connectOptions.willMessage.destinationName === "undefined")
-        throw new Error(format(ERROR.INVALID_TYPE, [typeof connectOptions.willMessage.destinationName, "connectOptions.willMessage.destinationName"]));
-    }
-    if (typeof connectOptions.cleanSession === "undefined")
-      connectOptions.cleanSession = true;
-    if (connectOptions.hosts) {
-
-      if (!(connectOptions.hosts instanceof Array))
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.hosts, "connectOptions.hosts"]));
-      if (connectOptions.hosts.length < 1)
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.hosts, "connectOptions.hosts"]));
-
-      let usingURIs = false;
-      for (let i = 0; i < connectOptions.hosts.length; i++) {
-        if (typeof connectOptions.hosts[i] !== "string")
-          throw new Error(format(ERROR.INVALID_TYPE, [typeof connectOptions.hosts[i], "connectOptions.hosts[" + i + "]"]));
-        if (/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/.test(connectOptions.hosts[i])) {
-          if (i == 0) {
-            usingURIs = true;
-          } else if (!usingURIs) {
-            throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.hosts[i], "connectOptions.hosts[" + i + "]"]));
-          }
-        } else if (usingURIs) {
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.hosts[i], "connectOptions.hosts[" + i + "]"]));
-        }
-      }
-
-      if (!usingURIs) {
-        if (!connectOptions.ports)
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.ports, "connectOptions.ports"]));
-        if (!(connectOptions.ports instanceof Array))
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.ports, "connectOptions.ports"]));
-        if (connectOptions.hosts.length !== connectOptions.ports.length)
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [connectOptions.ports, "connectOptions.ports"]));
-
-        connectOptions.uris = [];
-
-        for (let i = 0; i < connectOptions.hosts.length; i++) {
-          if (typeof connectOptions.ports[i] !== "number" || connectOptions.ports[i] < 0)
-            throw new Error(format(ERROR.INVALID_TYPE, [typeof connectOptions.ports[i], "connectOptions.ports[" + i + "]"]));
-          let host = connectOptions.hosts[i];
-          let port = connectOptions.ports[i];
-
-          let ipv6 = (host.indexOf(":") !== -1);
-          uri = "ws://" + (ipv6 ? "[" + host + "]" : host) + ":" + port + path;
-          connectOptions.uris.push(uri);
-        }
-      } else {
-        connectOptions.uris = connectOptions.hosts;
-      }
-    }
-
-
     return new Promise((resolve, reject) => {
-      connectOptions.onSuccess = resolve;
-      connectOptions.onFailure = reject;
-      client.connect(connectOptions);
+
+      if (mqttVersion > 4 || mqttVersion < 3) {
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [mqttVersion, "mqttVersion"]));
+      }
+
+      //Check that if password is set, so is username
+      if (password !== undefined && userName === undefined)
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [password, "password"]))
+
+      if (willMessage) {
+        if (!(willMessage instanceof Message))
+          throw new Error(format(ERROR.INVALID_TYPE, [willMessage, "willMessage"]));
+        // The will message must have a payload that can be represented as a string.
+        // Cause the willMessage to throw an exception if this is not the case.
+        willMessage.stringPayload;
+
+        if (typeof willMessage.destinationName === "undefined")
+          throw new Error(format(ERROR.INVALID_TYPE, [typeof willMessage.destinationName, "willMessage.destinationName"]));
+      }
+
+      if (uris) {
+        if (!Array.isArray(uris) || uris.length < 1)
+          throw new Error(format(ERROR.INVALID_ARGUMENT, [uris, "uris"]));
+
+        // Validate that all hosts are URIs, or none are, and validate the corresponding port
+        uris.forEach((host) => {
+          if (/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/.test(host) !== usingURIs) {
+            throw new Error(format(ERROR.INVALID_ARGUMENT, [host, "hosts[" + i + "]"]));
+          }
+        });
+      }
+
+
+      client.connect({
+        userName,
+        password,
+        willMessage,
+        timeout,
+        keepAliveInterval,
+        useSSL,
+        cleanSession,
+        mqttVersion,
+        allowMqttVersionFallback,
+        uris,
+        onSuccess: resolve,
+        onFailure: reject
+      });
     });
   };
 

@@ -1,6 +1,6 @@
 import { Client, Message } from "../..";
 
-global.window = global;
+//global.window = global;
 global.Paho = {
   MQTT: {
     Client: Client,

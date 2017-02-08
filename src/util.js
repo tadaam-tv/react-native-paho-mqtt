@@ -32,8 +32,11 @@ export function format(error, substitutions) {
 export function validate(obj, keys) {
   Object.keys(obj).forEach(key => {
     if (keys.hasOwnProperty(key)) {
-      if (typeof obj[key] !== keys[key]) {
-        throw new Error(format(ERROR.INVALID_TYPE, [typeof obj[key], key]));
+      let desiredType = keys[key];
+      if (!(desiredType.indexOf('?') === 0 && (typeof obj[key] === 'undefined' || obj[key] === null))) {
+        if (typeof obj[key] !== desiredType) {
+          throw new Error(format(ERROR.INVALID_TYPE, [typeof obj[key], key]));
+        }
       }
     } else {
       throw new Error('Unknown property, ' + key + '. Valid properties are: ' + Object.keys(keys).join(' '));

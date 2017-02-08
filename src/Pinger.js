@@ -13,6 +13,8 @@ export default class {
     this.isReset = false;
 
     this.pingReq = new WireMessage(MESSAGE_TYPE.PINGREQ).encode();
+
+    this.reset();
   }
 
   _doPing() {
@@ -29,7 +31,9 @@ export default class {
 
   reset() {
     this.isReset = true;
-    clearTimeout(this.timeout);
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+    }
     if (this._keepAliveInterval > 0)
       this.timeout = setTimeout(() => this._doPing(), this._keepAliveInterval);
   }

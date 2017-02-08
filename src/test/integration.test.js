@@ -21,7 +21,12 @@ describe('Integration tests', () => {
   beforeAll(() => {
     return settings.startBroker().then(() =>
       client.connect({ mqttVersion: settings.mqttVersion })
-    )
+    ).then((a) => {
+      console.log(a)
+    })
+      .catch(err => {
+      console.warn(err);
+    });
   });
 
   test('should send and receive a message', function (done) {
@@ -31,7 +36,9 @@ describe('Integration tests', () => {
     };
     message = new Message("Hello");
     message.destinationName = "/World";
-    client.subscribe("/World").then(() => client.send(message));
+    client.subscribe("/World").then(() => client.send(message)).catch(err => {
+      console.warn(err);
+    });
   });
 
   test('should disconnect and reconnect cleanly', function () {

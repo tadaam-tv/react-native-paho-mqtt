@@ -2,7 +2,6 @@ import Message from "./Message";
 import { format, lengthOfUTF8, encodeMBI, parseUTF8, writeString, writeUint16, readUint16, validate } from "./util";
 import { ERROR, CONNACK_RC, MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from "./constants";
 import Pinger from "./Pinger";
-import Timeout from "./Timeout";
 import WireMessage from "./WireMessage";
 
 // Collection of utility methods used to simplify module code
@@ -113,14 +112,14 @@ function decodeMessage(input, pos) {
  */
 export const ClientImpl = function (uri, host, port, path, clientId, storage, ws) {
   // Check dependencies are satisfied in this browser.
-  if (!ws && !(window.hasOwnProperty('WebSocket'))) {
+  if (!ws && !(window && window.hasOwnProperty('WebSocket'))) {
     throw new Error(format(ERROR.UNSUPPORTED, ["WebSocket"]));
   }
-  if (!storage && !(window.hasOwnProperty('localStorage'))) {
+  if (!storage && !(window && window.hasOwnProperty('localStorage'))) {
     throw new Error(format(ERROR.UNSUPPORTED, ["localStorage"]));
   }
 
-  if (!(window.hasOwnProperty('ArrayBuffer'))) {
+  if (!(window && window.hasOwnProperty('ArrayBuffer'))) {
     throw new Error(format(ERROR.UNSUPPORTED, ["ArrayBuffer"]));
   }
   this._trace("Client", uri, host, port, path, clientId);
@@ -137,7 +136,7 @@ export const ClientImpl = function (uri, host, port, path, clientId, storage, ws
   // The conditional inclusion of path in the key is for backward
   // compatibility to when the path was not configurable and assumed to
   // be /mqtt
-  this._localKey = host + ":" + port + (path != "/mqtt" ? ":" + path : "") + ":" + clientId + ":";
+  this._localKey = host + ":" + port + (path !== "/mqtt" ? ":" + path : "") + ":" + clientId + ":";
 
   // Create private instance-only message queue
   // Internal queue of messages to be sent, in sending order.
@@ -250,13 +249,14 @@ ClientImpl.prototype.subscribe = function (filter, subscribeOptions) {
     };
   }
 
-  if (subscribeOptions.timeout) {
-    wireMessage.timeOut = new Timeout(this, subscribeOptions.timeout, subscribeOptions.onFailure
-      , [{
+  if (subscribeOptions.timeout && subscribeOptions.onFailure) {
+    wireMessage.timeOut = setTimeout(() => {
+      subscribeOptions.onFailure({
         invocationContext: subscribeOptions.invocationContext,
         errorCode: ERROR.SUBSCRIBE_TIMEOUT.code,
         errorMessage: format(ERROR.SUBSCRIBE_TIMEOUT)
-      }]);
+      })
+    }, subscribeOptions.timeout);
   }
 
   // All subscriptions return a SUBACK.
@@ -280,12 +280,13 @@ ClientImpl.prototype.unsubscribe = function (filter, unsubscribeOptions) {
     };
   }
   if (unsubscribeOptions.timeout) {
-    wireMessage.timeOut = new Timeout(this, unsubscribeOptions.timeout, unsubscribeOptions.onFailure
-      , [{
+    wireMessage.timeOut = setTimeout(() => {
+      unsubscribeOptions.onFailure({
         invocationContext: unsubscribeOptions.invocationContext,
         errorCode: ERROR.UNSUBSCRIBE_TIMEOUT.code,
         errorMessage: format(ERROR.UNSUBSCRIBE_TIMEOUT)
-      }]);
+      })
+    }, subscribeOptions.timeout);
   }
 
   // All unsubscribes return a SUBACK.
@@ -320,7 +321,7 @@ ClientImpl.prototype.disconnect = function () {
   // Run the disconnected call back as soon as the message has been sent,
   // in case of a failure later on in the disconnect processing.
   // as a consequence, the _disconected call back may be run several times.
-  this._notify_msg_sent[wireMessage] = scope(this._disconnected, this);
+  this._notify_msg_sent[wireMessage] = () => this._disconnected();
 
   this._schedule_message(wireMessage);
 };
@@ -364,15 +365,19 @@ ClientImpl.prototype._doConnect = function (wsurl) {
   }
   this.socket.binaryType = 'arraybuffer';
 
-  this.socket.onopen = scope(this._on_socket_open, this);
-  this.socket.onmessage = scope(this._on_socket_message, this);
-  this.socket.onerror = scope(this._on_socket_error, this);
-  this.socket.onclose = scope(this._on_socket_close, this);
+  this.socket.onopen = () => this._on_socket_open();
+  this.socket.onmessage = (event) => this._on_socket_message(event);
+  this.socket.onerror = (error) => this._on_socket_error(error);
+  this.socket.onclose = () => this._on_socket_close();
 
   this.sendPinger = new Pinger(this, this.connectOptions.keepAliveInterval);
   this.receivePinger = new Pinger(this, this.connectOptions.keepAliveInterval);
 
-  this._connectTimeout = new Timeout(this, this.connectOptions.timeout, this._disconnected, [ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT)]);
+  if(this.connectOptions.timeout) {
+    this._connectTimeout = setTimeout(() => {
+      this._disconnected(ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT));
+    }, this.connectOptions.timeout);
+  }
 };
 
 
@@ -573,7 +578,7 @@ ClientImpl.prototype._handleMessage = function (wireMessage) {
   try {
     switch (wireMessage.type) {
       case MESSAGE_TYPE.CONNACK:
-        this._connectTimeout.cancel();
+        clearTimeout(this._connectTimeout);
 
         // If we have started using clean session then clear up the local state.
         if (this.connectOptions.cleanSession) {
@@ -682,7 +687,7 @@ ClientImpl.prototype._handleMessage = function (wireMessage) {
         var sentMessage = this._sentMessages[wireMessage.messageIdentifier];
         if (sentMessage) {
           if (sentMessage.timeOut)
-            sentMessage.timeOut.cancel();
+            clearTimeout(sentMessage.timeOut);
           // This will need to be fixed when we add multiple topic support
           if (wireMessage.returnCode[0] === 0x80) {
             if (sentMessage.onFailure) {
@@ -699,7 +704,7 @@ ClientImpl.prototype._handleMessage = function (wireMessage) {
         var sentMessage = this._sentMessages[wireMessage.messageIdentifier];
         if (sentMessage) {
           if (sentMessage.timeOut)
-            sentMessage.timeOut.cancel();
+            clearTimeout(sentMessage.timeOut);
           if (sentMessage.callback) {
             sentMessage.callback();
           }
@@ -800,7 +805,7 @@ ClientImpl.prototype._disconnected = function (errorCode, errorText) {
   this.sendPinger.cancel();
   this.receivePinger.cancel();
   if (this._connectTimeout)
-    this._connectTimeout.cancel();
+    clearTimeout(this._connectTimeout);
   // Clear message buffers.
   this._msg_queue = [];
   this._notify_msg_sent = {};
@@ -832,11 +837,10 @@ ClientImpl.prototype._disconnected = function (errorCode, errorText) {
     if (this.connected) {
       this.connected = false;
       // Execute the connectionLostCallback if there is one, and we were connected.
-      if (this.onConnectionLost)
-        this.onConnectionLost({ errorCode: errorCode, errorMessage: errorText });
+      this.onConnectionLost && this.onConnectionLost({ errorCode: errorCode, errorMessage: errorText });
     } else {
       // Otherwise we never had a connection, so indicate that the connect has failed.
-      if (this.connectOptions.mqttVersion === 4 && this.connectOptions.mqttVersionExplicit === false) {
+      if (this.connectOptions.mqttVersion === 4 && this.connectOptions.allowMqttVersionFallback === true) {
         this._trace("Failed to connect V4, dropping back to V3")
         this.connectOptions.mqttVersion = 3;
         if (this.connectOptions.uris) {
