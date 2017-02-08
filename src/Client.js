@@ -26,63 +26,27 @@ import { EventEmitter } from "events";
 
 /**
  * The JavaScript application communicates to the server using a {@link Client} object.
- * <p>
+ *
  * Most applications will create just one Client object and then call its connect() method,
  * however applications can create more than one Client object if they wish.
  * In this case the combination of host, port and clientId attributes must be different for each Client object.
- * <p>
- * The send, subscribe and unsubscribe methods are implemented as asynchronous JavaScript methods
- * (even though the underlying protocol exchange might be synchronous in nature).
- * This means they signal their completion by calling back to the application,
- * via Success or Failure callback functions provided by the application on the method in question.
- * Such callbacks are called at most once per method invocation and do not persist beyond the lifetime
- * of the script that made the invocation.
- * <p>
- * In contrast there are some callback functions, most notably <i>onMessageArrived</i>,
- * that are defined on the {@link Client} object.
- * These may get called multiple times, and aren't directly related to specific method invocations made by the client.
  *
  * @name Client
  *
- * @constructor
- *
- * @param {string} host - the address of the messaging server, as a fully qualified WebSocket URI, as a DNS name or dotted decimal IP address.
- * @param {number} port - the port number to connect to - only required if host is not a URI
- * @param {string} path - the path on the host to connect to - only used if host is not a URI. Default: '/mqtt'.
- * @param {string} clientId - the Messaging client identifier, between 1 and 23 characters in length.
- * @param {Object} storage - object implementing getItem, setItem, removeItem in a manner compatible with localStorage
- *
- * @property {string} host - <i>read only</i> the server's DNS hostname or dotted decimal IP address.
- * @property {number} port - <i>read only</i> the server's port.
- * @property {string} path - <i>read only</i> the server's path.
- * @property {string} clientId - <i>read only</i> used when connecting to the server.
- * @property {function} onConnectionLost - called when a connection has been lost.
- *                            after a connect() method has succeeded.
- *                            Establish the call back used when a connection has been lost. The connection may be
- *                            lost because the client initiates a disconnect or because the server or network
- *                            cause the client to be disconnected. The disconnect call back may be called without
- *                            the connectionComplete call back being invoked if, for example the client fails to
- *                            connect.
- *                            A single response object parameter is passed to the onConnectionLost callback containing the following fields:
- *                            <ol>
- *                            <li>errorCode
- *                            <li>errorMessage
- *                            </ol>
- * @property {function} onMessageDelivered called when a message has been delivered.
- *                            All processing that this Client will ever do has been completed. So, for example,
- *                            in the case of a Qos=2 message sent by this client, the PubComp flow has been received from the server
- *                            and the message has been removed from persistent storage before this callback is invoked.
- *                            Parameters passed to the onMessageDelivered callback are:
- *                            <ol>
- *                            <li>{@link Message} that was delivered.
- *                            </ol>
- * @property {function} onMessageArrived called when a message has arrived in this Client.
- *                            Parameters passed to the onMessageArrived callback are:
- *                            <ol>
- *                            <li>{@link Message} that has arrived.
- *                            </ol>
+ * @fires Client#connectionLost
+ * @fires Client#messageReceived
+ * @fires Client#messageDelivered
  */
 export default class Client extends EventEmitter {
+  /**
+   *
+   * @param {string} [host] - the address of the messaging server, as a fully qualified WebSocket URI, as a DNS name or dotted decimal IP address.
+   * @param {number} [port] - the port number to connect to - only required if host is not a URI
+   * @param {string} [path='/mqtt'] - the path on the host to connect to - only used if host is not a URI
+   * @param {string} [clientId] - the Messaging client identifier, between 1 and 23 characters in length.
+   * @param {object} [storage] - object implementing getItem, setItem, removeItem in a manner compatible with localStorage
+   * @param {object} [webSocket] - object implementing the W3C websocket spec
+   */
   constructor({ host, port, path = '/mqtt', clientId, storage, webSocket }) {
     super();
     let uri;
@@ -126,8 +90,23 @@ export default class Client extends EventEmitter {
       throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, "clientId"]));
 
     this._client = new ClientImpl(uri, host, port, path, clientId, storage, webSocket);
-    this._client.onMessageDelivered = (e) => this.emit('messageDelivered', e);
-    this._client.onMessageArrived = (e) => this.emit('messageReceived', e);
+
+    /**
+     * @event Client#messageDelivered
+     * @type {Message}
+     */
+    this._client.onMessageDelivered = (message) => this.emit('messageDelivered', message);
+
+    /**
+     * @event Client#messageReceived
+     * @type {Message}
+     */
+    this._client.onMessageArrived = (message) => this.emit('messageReceived', message);
+
+    /**
+     * @event Client#connectionLost
+     * @type {Error}
+     */
     this._client.onConnectionLost = (e) => this.emit('connectionLost', e);
   }
 
@@ -240,96 +219,48 @@ export default class Client extends EventEmitter {
   /**
    * Subscribe for messages, request receipt of a copy of messages sent to the destinations described by the filter.
    *
-   * @name Client#subscribe
-   * @function
-   * @param {string} filter describing the destinations to receive messages from.
-   * <br>
-   * @param {object} subscribeOptions - used to control the subscription
-   *
-   * @param {number} subscribeOptions.qos - the maiximum qos of any publications sent
-   *                                  as a result of making this subscription.
-   * @param {object} subscribeOptions.invocationContext - passed to the onSuccess callback
-   *                                  or onFailure callback.
-   * @param {function} subscribeOptions.onSuccess - called when the subscribe acknowledgement
-   *                                  has been received from the server.
-   *                                  A single response object parameter is passed to the onSuccess callback containing the following fields:
-   *                                  <ol>
-   *                                  <li>invocationContext if set in the subscribeOptions.
-   *                                  </ol>
-   * @param {function} subscribeOptions.onFailure - called when the subscribe request has failed or timed out.
-   *                                  A single response object parameter is passed to the onFailure callback containing the following fields:
-   *                                  <ol>
-   *                                  <li>invocationContext - if set in the subscribeOptions.
-   *                                  <li>errorCode - a number indicating the nature of the error.
-   *                                  <li>errorMessage - text describing the error.
-   *                                  </ol>
-   * @param {number} subscribeOptions.timeout - which, if present, determines the number of
-   *                                  seconds after which the onFailure calback is called.
-   *                                  The presence of a timeout does not prevent the onSuccess
-   *                                  callback from being called when the subscribe completes.
-   * @throws {InvalidState} if the client is not in connected state.
+   * @param {string} [filter] the topic to subscribe to
+   * @param {number} [qos=0] - the maximum qos of any publications sent as a result of making this subscription.
+   * @param {number} [timeout=30000] - milliseconds after which the call will fail
+   * @returns {Promise}
    */
-  subscribe(filter, subscribeOptions) {
-    if (typeof filter !== "string")
-      throw new Error("Invalid argument:" + filter);
-    subscribeOptions = subscribeOptions || {};
-    validate(subscribeOptions, {
-      qos: "number",
-      timeout: "number"
-    });
-
-    if (typeof subscribeOptions.qos !== "undefined"
-      && !(subscribeOptions.qos === 0 || subscribeOptions.qos === 1 || subscribeOptions.qos === 2 ))
-      throw new Error(format(ERROR.INVALID_ARGUMENT, [subscribeOptions.qos, "subscribeOptions.qos"]));
-
+  subscribe(filter, { qos = 0, timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      subscribeOptions.onSuccess = resolve;
-      subscribeOptions.onFailure = reject;
-      this._client.subscribe(filter, subscribeOptions);
+      if (typeof filter !== "string")
+        throw new Error("Invalid argument:" + filter);
+      if (typeof timeout !== "number")
+        throw new Error("Invalid argument:" + timeout);
+      if ([0,1,2].indexOf(qos) === -1)
+        throw new Error("Invalid argument:" + qos);
+
+      this._client.subscribe(filter, {
+        timeout,
+        qos,
+        onSuccess: resolve,
+        onFailure: reject
+      });
     });
   }
 
   /**
    * Unsubscribe for messages, stop receiving messages sent to destinations described by the filter.
    *
-   * @name Client#unsubscribe
-   * @function
-   * @param {string} filter - describing the destinations to receive messages from.
-   * @param {object} unsubscribeOptions - used to control the subscription
-   * @param {object} unsubscribeOptions.invocationContext - passed to the onSuccess callback
-   or onFailure callback.
-   * @param {function} unsubscribeOptions.onSuccess - called when the unsubscribe acknowledgement has been received from the server.
-   *                                    A single response object parameter is passed to the
-   *                                    onSuccess callback containing the following fields:
-   *                                    <ol>
-   *                                    <li>invocationContext - if set in the unsubscribeOptions.
-   *                                    </ol>
-   * @param {function} unsubscribeOptions.onFailure called when the unsubscribe request has failed or timed out.
-   *                                    A single response object parameter is passed to the onFailure callback containing the following fields:
-   *                                    <ol>
-   *                                    <li>invocationContext - if set in the unsubscribeOptions.
-   *                                    <li>errorCode - a number indicating the nature of the error.
-   *                                    <li>errorMessage - text describing the error.
-   *                                    </ol>
-   * @param {number} unsubscribeOptions.timeout - which, if present, determines the number of seconds
-   *                                    after which the onFailure callback is called. The presence of
-   *                                    a timeout does not prevent the onSuccess callback from being
-   *                                    called when the unsubscribe completes
-   * @throws {InvalidState} if the client is not in connected state.
+   * @param {string} [filter] the topic to unsubscribe from
+   * @param {number} [timeout=30000] MS after which the promise will be rejected
+   * @returns {Promise}
    */
-  unsubscribe(filter, unsubscribeOptions) {
-    if (typeof filter !== "string")
-      throw new Error("Invalid argument:" + filter);
-    unsubscribeOptions = unsubscribeOptions || {};
-    validate(unsubscribeOptions, {
-      invocationContext: "object",
-      timeout: "number"
-    });
-
+  unsubscribe(filter, { timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      unsubscribeOptions.onSuccess = resolve;
-      unsubscribeOptions.onFailure = reject;
-      this._client.unsubscribe(filter, unsubscribeOptions);
+      if (typeof filter !== "string")
+        throw new Error("Invalid argument:" + filter);
+      if (typeof timeout !== "number")
+        throw new Error("Invalid argument:" + timeout);
+
+      this._client.unsubscribe(filter, {
+        timeout,
+        onSuccess: resolve,
+        onFailure: reject
+      });
     });
   }
 
