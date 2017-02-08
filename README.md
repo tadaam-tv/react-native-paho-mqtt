@@ -29,15 +29,15 @@ const myStorage = {
 // Create a client instance
 const client = new Client({ host: 'iot.eclipse.org', port: 80, path: '/ws', clientId: 'clientId', storage: myStorage });
 
-// set callback handlers
-client.onConnectionLost = (responseObject) => {
+// set event handlers
+client.on('connectionLost', (responseObject) => {
     if (responseObject.errorCode !== 0) {
-      console.log("onConnectionLost:"+responseObject.errorMessage);
+      console.log(responseObject.errorMessage);
     }
-};
-client.onMessageArrived = (message) => {
-    console.log("onMessageArrived:"+message.payloadString);
-};
+});
+client.on('messageReceived', (message) => {
+    console.log(message.payloadString);
+});
 
 // connect the client
 client.connect()

@@ -205,8 +205,11 @@ ClientImpl.prototype._traceBuffer = null;
 ClientImpl.prototype._MAX_TRACE_ENTRIES = 100;
 
 ClientImpl.prototype.connect = function (connectOptions) {
-  var connectOptionsMasked = this._traceMask(connectOptions, "password");
-  this._trace("Client.connect", connectOptionsMasked, this.socket, this.connected);
+  const maskedCopy = {...connectOptions};
+  if (maskedCopy.type === 1 && maskedCopy.password) {
+    maskedCopy.password = 'REDACTED'
+  }
+  this._trace("Client.connect", maskedCopy, this.socket, this.connected);
 
   if (this.connected)
     throw new Error(format(ERROR.INVALID_STATE, ["already connected"]));
@@ -745,12 +748,11 @@ ClientImpl.prototype._on_socket_close = function () {
 
 /** @ignore */
 ClientImpl.prototype._socket_send = function (wireMessage) {
-
-  if (wireMessage.type === 1) {
-    const wireMessageMasked = this._traceMask(wireMessage, "password");
-    this._trace("Client._socket_send", wireMessageMasked);
+  const maskedCopy = {...wireMessage};
+  if (maskedCopy.type === 1 && maskedCopy.password) {
+    maskedCopy.password = 'REDACTED'
   }
-  else this._trace("Client._socket_send", wireMessage);
+  this._trace("Client._socket_send", maskedCopy);
 
   this.socket.send(wireMessage.encode());
   /* We have proved to the server we are alive. */
@@ -885,18 +887,4 @@ ClientImpl.prototype._trace = function () {
     ;
   }
   ;
-};
-
-/** @ignore */
-ClientImpl.prototype._traceMask = function (traceObject, masked) {
-  var traceObjectMasked = {};
-  for (var attr in traceObject) {
-    if (traceObject.hasOwnProperty(attr)) {
-      if (attr == masked)
-        traceObjectMasked[attr] = "******";
-      else
-        traceObjectMasked[attr] = traceObject[attr];
-    }
-  }
-  return traceObjectMasked;
 };

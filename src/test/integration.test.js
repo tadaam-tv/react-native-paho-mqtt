@@ -30,10 +30,10 @@ describe('Integration tests', () => {
   });
 
   test('should send and receive a message', function (done) {
-    client.onMessageArrived = (message) => {
+    client.on('messageReceived', (message) => {
       expect(message.payloadString).toEqual('Hello');
       done();
-    };
+    });
     message = new Message("Hello");
     message.destinationName = "/World";
     client.subscribe("/World").then(() => client.send(message)).catch(err => {

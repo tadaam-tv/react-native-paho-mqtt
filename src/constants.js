@@ -56,7 +56,7 @@ export const CONNACK_RC = {
   5: "Connection Refused: not authorized"
 };
 
-//MQTT protocol and version          6    M    Q    I    s    d    p    3
+//MQTTv3.1 protocol and version                6     M     Q     I     s     d     p     3
 export const MqttProtoIdentifierv3 = [0x00, 0x06, 0x4d, 0x51, 0x49, 0x73, 0x64, 0x70, 0x03];
-//MQTT proto/version for 311         4    M    Q    T    T    4
+//MQTTv4 protocol and version                  4     M     Q     T     T     4
 export const MqttProtoIdentifierv4 = [0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04];

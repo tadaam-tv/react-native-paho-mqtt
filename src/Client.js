@@ -18,70 +18,10 @@ import { ClientImpl } from "./ClientImpl";
 import Message from "./Message";
 import { format, validate } from "./util";
 import { ERROR } from "./constants";
-
-/**
- * Send and receive messages using web browsers.
- * <p>
- * This programming interface lets a JavaScript client application use the MQTT V3.1.x or
- * V4 protocol to connect to an MQTT-supporting messaging server.
- *
- * The function supported includes:
- * <ol>
- * <li>Connecting to and disconnecting from a server. The server is identified by its host name and port number.
- * <li>Specifying options that relate to the communications link with the server,
- * for example the frequency of keep-alive heartbeats, and whether SSL/TLS is required.
- * <li>Subscribing to and receiving messages from MQTT Topics.
- * <li>Publishing messages to MQTT Topics.
- * </ol>
- * <p>
- * The API consists of two main objects:
- * <dl>
- * <dt><b>{@link Client}</b></dt>
- * <dd>This contains methods that provide the functionality of the API,
- * including provision of callbacks that notify the application when a message
- * arrives from or is delivered to the messaging server,
- * or when the status of its connection to the messaging server changes.</dd>
- * <dt><b>{@link Message}</b></dt>
- * <dd>This encapsulates the payload of the message along with various attributes
- * associated with its delivery, in particular the destination to which it has
- * been (or is about to be) sent.</dd>
- * </dl>
- * <p>
- * The programming interface validates parameters passed to it, and will throw
- * an Error containing an error message intended for developer use, if it detects
- * an error with any parameter.
- * <p>
- * Example:
- *
- * <code><pre>
- client = new Client(location.hostname, Number(location.port), "clientId");
- client.onConnectionLost = onConnectionLost;
- client.onMessageArrived = onMessageArrived;
- client.connect({onSuccess:onConnect});
-
- function onConnect() {
-  // Once a connection has been made, make a subscription and send a message.
-  console.log("onConnect");
-  client.subscribe("/World");
-  message = new Message("Hello");
-  message.destinationName = "/World";
-  client.send(message);
-};
- function onConnectionLost(responseObject) {
-  if (responseObject.errorCode !== 0)
-	console.log("onConnectionLost:"+responseObject.errorMessage);
-};
- function onMessageArrived(message) {
-  console.log("onMessageArrived:"+message.payloadString);
-  client.disconnect();
-};
- * </pre></code>
- * @namespace Paho.MQTT
- */
-
+import { EventEmitter } from "events";
 
 // ------------------------------------------------------------------------
-// Public Programming interface.
+// Public API.
 // ------------------------------------------------------------------------
 
 /**
@@ -142,124 +82,54 @@ import { ERROR } from "./constants";
  *                            <li>{@link Message} that has arrived.
  *                            </ol>
  */
-export default Client = function ({ host, port, path = '/mqtt', clientId, storage, webSocket }) {
+export default class Client extends EventEmitter {
+  constructor({ host, port, path = '/mqtt', clientId, storage, webSocket }) {
+    super();
+    let uri;
 
-  let uri;
+    if (typeof host !== "string")
+      throw new Error(format(ERROR.INVALID_TYPE, [typeof host, "host"]));
 
-  if (typeof host !== "string")
-    throw new Error(format(ERROR.INVALID_TYPE, [typeof host, "host"]));
-
-  if (!port) {
-    // host: must be full ws:// uri
-    uri = host;
-    let match = uri.match(/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/);
-    if (match) {
-      host = match[4] || match[2];
-      port = parseInt(match[7]);
-      path = match[8];
+    if (!port) {
+      // host: must be full ws:// uri
+      uri = host;
+      let match = uri.match(/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/);
+      if (match) {
+        host = match[4] || match[2];
+        port = parseInt(match[7]);
+        path = match[8];
+      } else {
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [host, "host"]));
+      }
     } else {
-      throw new Error(format(ERROR.INVALID_ARGUMENT, [host, "host"]));
-    }
-  } else {
-    if (!path) {
-      path = "/mqtt";
-    }
-    if (typeof port !== "number" || port < 0)
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof port, "port"]));
-    if (typeof path !== "string")
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof path, "path"]));
+      if (!path) {
+        path = "/mqtt";
+      }
+      if (typeof port !== "number" || port < 0)
+        throw new Error(format(ERROR.INVALID_TYPE, [typeof port, "port"]));
+      if (typeof path !== "string")
+        throw new Error(format(ERROR.INVALID_TYPE, [typeof path, "path"]));
 
-    const ipv6AddSBracket = (host.indexOf(":") !== -1 && host.slice(0, 1) !== "[" && host.slice(-1) !== "]");
-    uri = "ws://" + (ipv6AddSBracket ? "[" + host + "]" : host) + ":" + port + path;
+      const ipv6AddSBracket = (host.indexOf(":") !== -1 && host.slice(0, 1) !== "[" && host.slice(-1) !== "]");
+      uri = "ws://" + (ipv6AddSBracket ? "[" + host + "]" : host) + ":" + port + path;
+    }
+
+    let clientIdLength = 0;
+    for (let i = 0; i < clientId.length; i++) {
+      let charCode = clientId.charCodeAt(i);
+      if (0xD800 <= charCode && charCode <= 0xDBFF) {
+        i++; // Surrogate pair.
+      }
+      clientIdLength++;
+    }
+    if (typeof clientId !== "string" || clientIdLength > 65535)
+      throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, "clientId"]));
+
+    this._client = new ClientImpl(uri, host, port, path, clientId, storage, webSocket);
+    this._client.onMessageDelivered = (e) => this.emit('messageDelivered', e);
+    this._client.onMessageArrived = (e) => this.emit('messageReceived', e);
+    this._client.onConnectionLost = (e) => this.emit('connectionLost', e);
   }
-
-  let clientIdLength = 0;
-  for (let i = 0; i < clientId.length; i++) {
-    let charCode = clientId.charCodeAt(i);
-    if (0xD800 <= charCode && charCode <= 0xDBFF) {
-      i++; // Surrogate pair.
-    }
-    clientIdLength++;
-  }
-  if (typeof clientId !== "string" || clientIdLength > 65535)
-    throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, "clientId"]));
-
-  let client = new ClientImpl(uri, host, port, path, clientId, storage, webSocket);
-  this._getHost = function () {
-    return host;
-  };
-  this._setHost = function () {
-    throw new Error(format(ERROR.UNSUPPORTED_OPERATION));
-  };
-
-  this._getPort = function () {
-    return port;
-  };
-  this._setPort = function () {
-    throw new Error(format(ERROR.UNSUPPORTED_OPERATION));
-  };
-
-  this._getPath = function () {
-    return path;
-  };
-  this._setPath = function () {
-    throw new Error(format(ERROR.UNSUPPORTED_OPERATION));
-  };
-
-  this._getURI = function () {
-    return uri;
-  };
-  this._setURI = function () {
-    throw new Error(format(ERROR.UNSUPPORTED_OPERATION));
-  };
-
-  this._getClientId = function () {
-    return client.clientId;
-  };
-  this._setClientId = function () {
-    throw new Error(format(ERROR.UNSUPPORTED_OPERATION));
-  };
-
-  this._getOnConnectionLost = function () {
-    return client.onConnectionLost;
-  };
-  this._setOnConnectionLost = function (newOnConnectionLost) {
-    if (typeof newOnConnectionLost === "function")
-      client.onConnectionLost = newOnConnectionLost;
-    else
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof newOnConnectionLost, "onConnectionLost"]));
-  };
-
-  this._getOnMessageDelivered = function () {
-    return client.onMessageDelivered;
-  };
-  this._setOnMessageDelivered = function (newOnMessageDelivered) {
-    if (typeof newOnMessageDelivered === "function")
-      client.onMessageDelivered = newOnMessageDelivered;
-    else
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof newOnMessageDelivered, "onMessageDelivered"]));
-  };
-
-  this._getOnMessageArrived = function () {
-    return client.onMessageArrived;
-  };
-  this._setOnMessageArrived = function (newOnMessageArrived) {
-    if (typeof newOnMessageArrived === "function")
-      client.onMessageArrived = newOnMessageArrived;
-    else
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof newOnMessageArrived, "onMessageArrived"]));
-  };
-
-  this._getTrace = function () {
-    return client.traceFunction;
-  };
-  this._setTrace = function (trace) {
-    if (typeof trace === "function") {
-      client.traceFunction = trace;
-    } else {
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof trace, "onTrace"]));
-    }
-  };
 
   /**
    * Connect this Messaging client to its server.
@@ -280,7 +150,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    *  of the constructor's configuration. The hosts are tried one at at time in order until
    *  one of them succeeds.
    */
-  this.connect = function ({
+  connect({
     userName,
     password,
     willMessage,
@@ -350,7 +220,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
       }
 
 
-      client.connect({
+      this._client.connect({
         userName,
         password,
         willMessage,
@@ -365,7 +235,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
         onFailure: reject
       });
     });
-  };
+  }
 
   /**
    * Subscribe for messages, request receipt of a copy of messages sent to the destinations described by the filter.
@@ -399,7 +269,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    *                                  callback from being called when the subscribe completes.
    * @throws {InvalidState} if the client is not in connected state.
    */
-  this.subscribe = function (filter, subscribeOptions) {
+  subscribe(filter, subscribeOptions) {
     if (typeof filter !== "string")
       throw new Error("Invalid argument:" + filter);
     subscribeOptions = subscribeOptions || {};
@@ -415,9 +285,9 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
     return new Promise((resolve, reject) => {
       subscribeOptions.onSuccess = resolve;
       subscribeOptions.onFailure = reject;
-      client.subscribe(filter, subscribeOptions);
+      this._client.subscribe(filter, subscribeOptions);
     });
-  };
+  }
 
   /**
    * Unsubscribe for messages, stop receiving messages sent to destinations described by the filter.
@@ -447,7 +317,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    *                                    called when the unsubscribe completes
    * @throws {InvalidState} if the client is not in connected state.
    */
-  this.unsubscribe = function (filter, unsubscribeOptions) {
+  unsubscribe(filter, unsubscribeOptions) {
     if (typeof filter !== "string")
       throw new Error("Invalid argument:" + filter);
     unsubscribeOptions = unsubscribeOptions || {};
@@ -459,9 +329,9 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
     return new Promise((resolve, reject) => {
       unsubscribeOptions.onSuccess = resolve;
       unsubscribeOptions.onFailure = reject;
-      client.unsubscribe(filter, unsubscribeOptions);
+      this._client.unsubscribe(filter, unsubscribeOptions);
     });
-  };
+  }
 
   /**
    * Send a message to the consumers of the destination in the Message.
@@ -485,7 +355,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    *                     and the subscrption was made after the message has been published.
    * @throws {InvalidState} if the client is not connected.
    */
-  this.send = function (topic, payload, qos, retained) {
+  send(topic, payload, qos, retained) {
     let message;
 
     if (arguments.length == 0) {
@@ -499,7 +369,7 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
       message = topic;
       if (typeof message.destinationName === "undefined")
         throw new Error(format(ERROR.INVALID_ARGUMENT, [message.destinationName, "Message.destinationName"]));
-      client.send(message);
+      this._client.send(message);
 
     } else {
       //parameter checking in Message object
@@ -509,9 +379,9 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
         message.qos = qos;
       if (arguments.length >= 4)
         message.retained = retained;
-      client.send(message);
+      this._client.send(message);
     }
-  };
+  }
 
   /**
    * Normal disconnect of this Messaging client from its server.
@@ -520,18 +390,17 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    * @function
    * @throws {InvalidState} if the client is already disconnected.
    */
-  this.disconnect = function () {
+  disconnect() {
     return new Promise((resolve, reject) => {
-      client.onConnectionLost = (error) => {
-        client.onConnectionLost = null;
+      this.once('connectionLost', (error) => {
         if (error && error.errorCode !== 0) {
           return reject(error);
         }
         resolve();
-      };
-      client.disconnect();
+      });
+      this._client.disconnect();
     });
-  };
+  }
 
   /**
    * Get the contents of the trace log.
@@ -540,8 +409,8 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    * @function
    * @return {Object[]} tracebuffer containing the time ordered trace records.
    */
-  this.getTraceLog = function () {
-    return client.getTraceLog();
+  getTraceLog() {
+    return this._client.getTraceLog();
   }
 
   /**
@@ -550,8 +419,8 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    * @name Client#startTrace
    * @function
    */
-  this.startTrace = function () {
-    client.startTrace();
+  startTrace() {
+    this._client.startTrace();
   };
 
   /**
@@ -560,70 +429,39 @@ export default Client = function ({ host, port, path = '/mqtt', clientId, storag
    * @name Client#stopTrace
    * @function
    */
-  this.stopTrace = function () {
-    client.stopTrace();
-  };
-
-  this.isConnected = function () {
-    return client.connected;
-  };
-};
-
-Client.prototype = {
-  get host() {
-    return this._getHost();
-  },
-  set host(newHost) {
-    this._setHost(newHost);
-  },
-
-  get port() {
-    return this._getPort();
-  },
-  set port(newPort) {
-    this._setPort(newPort);
-  },
-
-  get path() {
-    return this._getPath();
-  },
-  set path(newPath) {
-    this._setPath(newPath);
-  },
-
-  get clientId() {
-    return this._getClientId();
-  },
-  set clientId(newClientId) {
-    this._setClientId(newClientId);
-  },
-
-  get onConnectionLost() {
-    return this._getOnConnectionLost();
-  },
-  set onConnectionLost(newOnConnectionLost) {
-    this._setOnConnectionLost(newOnConnectionLost);
-  },
-
-  get onMessageDelivered() {
-    return this._getOnMessageDelivered();
-  },
-  set onMessageDelivered(newOnMessageDelivered) {
-    this._setOnMessageDelivered(newOnMessageDelivered);
-  },
-
-  get onMessageArrived() {
-    return this._getOnMessageArrived();
-  },
-  set onMessageArrived(newOnMessageArrived) {
-    this._setOnMessageArrived(newOnMessageArrived);
-  },
-
-  get trace() {
-    return this._getTrace();
-  },
-  set trace(newTraceFunction) {
-    this._setTrace(newTraceFunction);
+  stopTrace() {
+    this._client.stopTrace();
   }
 
+  isConnected() {
+    return this._client.connected;
+  }
+
+  get host() {
+    return this._client.host;
+  }
+
+  get port() {
+    return this._client.port;
+  }
+
+  get path() {
+    return this._client.path;
+  }
+
+  get clientId() {
+    return this._client.clientId;
+  }
+
+  get trace() {
+    return this._client.traceFunction;
+  }
+
+  set trace(trace) {
+    if (typeof trace === "function") {
+      this._client.traceFunction = trace;
+    } else {
+      throw new Error(format(ERROR.INVALID_TYPE, [typeof trace, "onTrace"]));
+    }
+  }
 };

@@ -10,7 +10,6 @@ describe('client-uris', function () {
 
   test('should create a new client with a default path', function () {
     const client = new Client({ host, port, clientId: "testclientid", webSocket, storage });
-
     expect(client).not.toBe(null);
     expect(client.host).toBe(host);
     expect(client.port).toBe(port);
