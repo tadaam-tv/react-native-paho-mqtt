@@ -5,15 +5,9 @@ import Pinger from "./Pinger";
 import WireMessage from "./WireMessage";
 
 /*
- * Internal implementation of the Websockets MQTT V3.1 client.
- *
- * @name ClientImpl @constructor
- * @param {String} host the DNS nameof the webSocket host.
- * @param {Number} port the port number for that host.
- * @param {String} clientId the MQ client identifier.
- * @param {Object} optional object implementing getItem, setItem, removeItem in a manner compatible with localStorage
+ * Internal implementation of the Websockets MQTT V3.1/V4 client.
  */
-export class ClientImpl {
+export default class ClientImpl {
 
   // Messaging Client public instance members.
   host;
@@ -24,7 +18,7 @@ export class ClientImpl {
   storage;
   webSocket;
 
-// Messaging Client private instance members.
+  // Messaging Client private instance members.
   socket;
   /* true once we have received an acknowledgement to a CONNECT packet. */
   connected = false;
@@ -50,6 +44,16 @@ export class ClientImpl {
   _traceBuffer = null;
   _MAX_TRACE_ENTRIES = 100;
 
+  /**
+   *
+   * @param {string} [uri] the FQDN (with protocol and path suffix) of the host
+   * @param {string} [host] the DNS nameof the webSocket host.
+   * @param {number} [port] the port number for that host.
+   * @param {string} [path] the path suffix for the host.
+   * @param {string} [clientId] the MQ client identifier.
+   * @param {object} [storage] object implementing getItem, setItem, removeItem in a manner compatible with localStorage
+   * @param {object} [ws] object implementing the W3C websockets spec
+   */
   constructor(uri, host, port, path, clientId, storage, ws) {
     // Check dependencies are satisfied in this browser.
     if (!ws && !(window && window.WebSocket)) {
@@ -289,11 +293,11 @@ export class ClientImpl {
   }
 
 
-// Schedule a new message to be sent over the WebSockets
-// connection. CONNECT messages cause WebSocket connection
-// to be started. All other messages are queued internally
-// until this has happened. When WS connection starts, process
-// all outstanding messages.
+  // Schedule a new message to be sent over the WebSockets
+  // connection. CONNECT messages cause WebSocket connection
+  // to be started. All other messages are queued internally
+  // until this has happened. When WS connection starts, process
+  // all outstanding messages.
   _schedule_message(message) {
     this._msg_queue.push(message);
     // Process outstanding messages in the queue if we have an  open socket, and have received CONNACK.

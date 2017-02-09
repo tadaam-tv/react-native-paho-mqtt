@@ -14,7 +14,7 @@
  *    Andrew Banks - initial API and implementation and initial documentation
  *******************************************************************************/
 
-import { ClientImpl } from "./ClientImpl";
+import ClientImpl from "./ClientImpl";
 import Message from "./Message";
 import { format, validate } from "./util";
 import { ERROR } from "./constants";
