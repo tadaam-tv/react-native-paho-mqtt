@@ -101,7 +101,7 @@ export default class {
   }
 
   get retained(): boolean {
-    return this._retained
+    return this._retained;
   }
 
   set retained(newRetained: boolean) {
