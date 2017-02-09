@@ -1,3 +1,5 @@
+/* @flow */
+
 import { ERROR, MESSAGE_TYPE } from './constants';
 import WireMessage from './WireMessage';
 import Message from './Message';
@@ -9,13 +11,13 @@ import Message from './Message';
  * @param substitutions [array] substituted into the text.
  * @return the text with the substitutions made.
  */
-export function format(error, substitutions) {
+export function format(error: { text: string }, substitutions: (string | number)[]) {
   let text = error.text;
   if (substitutions) {
     let field;
     substitutions.forEach((substitution, i) => {
       field = '{' + i + '}';
-      text = text.replace(field, substitution);
+      text = text.replace(field, substitution.toString());
     });
   }
   return text;
@@ -31,7 +33,7 @@ export function format(error, substitutions) {
  * @throws {Error} Invalid option parameter found.
  * @private
  */
-export function validate(obj, keys) {
+export function validate(obj: {}, keys: { [key: string]: string }) {
   Object.keys(obj).forEach(key => {
     if (keys.hasOwnProperty(key)) {
       let desiredType = keys[key];
@@ -46,19 +48,21 @@ export function validate(obj, keys) {
   });
 }
 
-export function writeUint16(input, buffer, offset) {
+//Write a 16-bit number into two bytes of Uint8Array, starting at offset
+export function writeUint16(input: number, buffer: Uint8Array, offset: number): number {
   buffer[offset++] = input >> 8;      //MSB
   buffer[offset++] = input % 256;     //LSB
   return offset;
 }
 
-export function writeString(input, utf8Length, buffer, offset) {
+export function writeString(input: string, utf8Length: number, buffer: Uint8Array, offset: number) {
   offset = writeUint16(utf8Length, buffer, offset);
   stringToUTF8(input, buffer, offset);
   return offset + utf8Length;
 }
 
-export function readUint16(buffer, offset) {
+//Read a 16-bit number out of two bytes of a Uint8Array
+export function readUint16(buffer: Uint8Array, offset: number): number {
   return 256 * buffer[offset] + buffer[offset + 1];
 }
 
@@ -66,7 +70,7 @@ export function readUint16(buffer, offset) {
  * Encodes an MQTT Multi-Byte Integer
  * @private
  */
-export function encodeMBI(number) {
+export function encodeMBI(number: number) {
   let output = new Array(1);
   let numBytes = 0;
 
@@ -86,7 +90,7 @@ export function encodeMBI(number) {
  * Takes a String and calculates its length in bytes when encoded in UTF8.
  * @private
  */
-export function lengthOfUTF8(input) {
+export function lengthOfUTF8(input: string): number {
   let output = 0;
   for (let i = 0; i < input.length; i++) {
     const charCode = input.charCodeAt(i);
@@ -111,7 +115,7 @@ export function lengthOfUTF8(input) {
  * Takes a String and writes it into an array as UTF8 encoded bytes.
  * @private
  */
-export function stringToUTF8(input, output, start) {
+export function stringToUTF8(input: string, output: Uint8Array, start: number): Uint8Array {
   let pos = start;
   for (let i = 0; i < input.length; i++) {
     let charCode = input.charCodeAt(i);
@@ -145,7 +149,7 @@ export function stringToUTF8(input, output, start) {
   return output;
 }
 
-export function parseUTF8(input, offset, length) {
+export function parseUTF8(input: Uint8Array, offset: number, length: number):string {
   let output = '';
   let utf16;
   let pos = offset;
@@ -197,7 +201,7 @@ export function parseUTF8(input, offset, length) {
   return output;
 }
 
-export function decodeMessage(input, pos) {
+export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage, number] {
   const startingPos = pos;
   let first = input[pos];
   const type = first >> 4;
@@ -236,7 +240,7 @@ export function decodeMessage(input, pos) {
       break;
 
     case MESSAGE_TYPE.PUBLISH:
-      const qos = (messageInfo >> 1) & 0x03;
+      const qos:any = (messageInfo >> 1) & 0x03;
 
       const len = readUint16(input, pos);
       pos += 2;

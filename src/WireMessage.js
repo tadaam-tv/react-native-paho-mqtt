@@ -1,6 +1,8 @@
-import { encodeMBI, lengthOfUTF8, writeString, writeUint16 } from './util';
-import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from './constants';
+/* @flow */
 
+import { encodeMBI, format, lengthOfUTF8, writeString, writeUint16 } from './util';
+import { DEFAULT_KEEPALIVE_MS, ERROR, MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from './constants';
+import Message from './Message';
 
 /**
  * Construct an MQTT wire protocol message.
@@ -18,7 +20,6 @@ import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from './co
  * 'Flag' properties
  * cleanSession:  true if present / false if absent (CONNECT)
  * willMessage:    true if present / false if absent (CONNECT)
- * isRetained:    true if present / false if absent (CONNECT)
  * userName:    true if present / false if absent (CONNECT)
  * password:    true if present / false if absent (CONNECT)
  * keepAliveInterval:  integer [0..65535]  (CONNECT)
@@ -27,14 +28,39 @@ import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from './co
  * @ignore
  */
 export default class {
-  messageIdentifier = null;
+  type: number;
+  messageIdentifier: ?number = null;
+  payloadMessage: ?Message = null;
+  cleanSession = null;
+  userName = null;
+  password = null;
+  mqttVersion = null;
+  willMessage: ?Message = null;
+  keepAliveInterval: ?number;
+  topics: ?string[];
+  requestedQos: ?(0|1|2)[];
+  clientId: ?string;
+  sessionPresent: ?boolean;
+  returnCode: ?(number|Uint8Array);
 
-  constructor(type, options = {}) {
+  constructor(type: number, options: {
+    messageIdentifier?: number;
+    payloadMessage?: Message;
+    cleanSession?: boolean;
+    userName?: string;
+    password?: string;
+    mqttVersion?: number;
+    willMessage?: Message;
+    keepAliveInterval?: number;
+    topics?: string[];
+    requestedQos?: (0|1|2)[];
+    clientId?: string
+  } = {}) {
     this.type = type;
+    const self:Object = this;
     Object.keys(options).forEach((name) => {
-      this[name] = options[name];
+      self[name] = options[name];
     });
-    this.encode.bind(this);
   }
 
   encode() {
@@ -49,7 +75,7 @@ export default class {
     let remLength = 0;
     const topicStrLength = [];
     let destinationNameLength = 0;
-    let payloadBytes, willMessagePayloadBytes;
+    let payloadBytes: ?Uint8Array, willMessagePayloadBytes;
 
     // if the message contains a messageIdentifier then we need two bytes for that
     if (this.messageIdentifier) {
@@ -70,9 +96,9 @@ export default class {
 
         remLength += lengthOfUTF8(this.clientId) + 2;
         if (this.willMessage) {
-          remLength += lengthOfUTF8(this.willMessage.destinationName) + 2;
-          // Will message is always a string, sent as UTF-8 characters with a preceding length.
           willMessagePayloadBytes = this.willMessage.payloadBytes;
+          // Will message is always a string, sent as UTF-8 characters with a preceding length.
+          remLength += lengthOfUTF8(this.willMessage.destinationName) + 2;
           if (!(willMessagePayloadBytes instanceof Uint8Array)) {
             willMessagePayloadBytes = new Uint8Array(payloadBytes);
           }
@@ -89,6 +115,12 @@ export default class {
       // Subscribe, Unsubscribe can both contain topic strings
       case MESSAGE_TYPE.SUBSCRIBE:
         first |= 0x02; // Qos = 1;
+        if (!this.topics) {
+          throw new Error(format(ERROR.INVALID_STATE, ['SUBSCRIBE WireMessage with no topics']));
+        }
+        if (!this.requestedQos) {
+          throw new Error(format(ERROR.INVALID_STATE, ['SUBSCRIBE WireMessage with no requestedQos']));
+        }
         for (let i = 0; i < this.topics.length; i++) {
           topicStrLength[i] = lengthOfUTF8(this.topics[i]);
           remLength += topicStrLength[i] + 2;
@@ -99,6 +131,9 @@ export default class {
 
       case MESSAGE_TYPE.UNSUBSCRIBE:
         first |= 0x02; // Qos = 1;
+        if (!this.topics) {
+          throw new Error(format(ERROR.INVALID_STATE, ['UNSUBSCRIBE WireMessage with no topics']));
+        }
         for (let i = 0; i < this.topics.length; i++) {
           topicStrLength[i] = lengthOfUTF8(this.topics[i]);
           remLength += topicStrLength[i] + 2;
@@ -110,6 +145,9 @@ export default class {
         break;
 
       case MESSAGE_TYPE.PUBLISH:
+        if (!this.payloadMessage) {
+          throw new Error(format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payload']));
+        }
         if (this.payloadMessage.duplicate) {
           first |= 0x08;
         }
@@ -117,15 +155,10 @@ export default class {
         if (this.payloadMessage.retained) {
           first |= 0x01;
         }
+        payloadBytes = this.payloadMessage.payloadBytes;
         destinationNameLength = lengthOfUTF8(this.payloadMessage.destinationName);
         remLength += destinationNameLength + 2;
-        payloadBytes = this.payloadMessage.payloadBytes;
         remLength += payloadBytes.byteLength;
-        if (payloadBytes instanceof ArrayBuffer) {
-          payloadBytes = new Uint8Array(payloadBytes);
-        } else if (!(payloadBytes instanceof Uint8Array)) {
-          payloadBytes = new Uint8Array(payloadBytes.buffer);
-        }
         break;
 
       case MESSAGE_TYPE.DISCONNECT:
@@ -147,6 +180,9 @@ export default class {
 
     // If this is a PUBLISH then the variable header starts with a topic
     if (this.type === MESSAGE_TYPE.PUBLISH) {
+      if (!this.payloadMessage) {
+        throw new Error(format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payload']));
+      }
       pos = writeString(this.payloadMessage.destinationName, destinationNameLength, byteStream, pos);
     }// If this is a CONNECT then the variable header contains the protocol name/version, flags and keepalive time
 
@@ -179,7 +215,7 @@ export default class {
         connectFlags |= 0x40;
       }
       byteStream[pos++] = connectFlags;
-      pos = writeUint16(this.keepAliveInterval, byteStream, pos);
+      pos = writeUint16(this.keepAliveInterval || DEFAULT_KEEPALIVE_MS, byteStream, pos);
     }
 
     // Output the messageIdentifier - if there is one
@@ -189,8 +225,12 @@ export default class {
 
     switch (this.type) {
       case MESSAGE_TYPE.CONNECT:
+        if (!this.clientId) {
+          throw new Error(format(ERROR.INVALID_STATE, ['CONNECT WireMessage with no clientId']));
+        }
         pos = writeString(this.clientId, lengthOfUTF8(this.clientId), byteStream, pos);
         if (this.willMessage) {
+          willMessagePayloadBytes = this.willMessage.payloadBytes;
           pos = writeString(this.willMessage.destinationName, lengthOfUTF8(this.willMessage.destinationName), byteStream, pos);
           pos = writeUint16(willMessagePayloadBytes.byteLength, byteStream, pos);
           byteStream.set(willMessagePayloadBytes, pos);
@@ -207,7 +247,7 @@ export default class {
 
       case MESSAGE_TYPE.PUBLISH:
         // PUBLISH has a text or binary payload, if text do not add a 2 byte length field, just the UTF characters.
-        byteStream.set(payloadBytes, pos);
+        payloadBytes && byteStream.set(payloadBytes, pos);
 
         break;
 
@@ -217,14 +257,23 @@ export default class {
 //    	    	break;
 
       case MESSAGE_TYPE.SUBSCRIBE:
+        if (!this.topics) {
+          throw new Error(format(ERROR.INVALID_STATE, ['SUBSCRIBE WireMessage with no topics']));
+        }
         // SUBSCRIBE has a list of topic strings and request QoS
         for (let i = 0; i < this.topics.length; i++) {
           pos = writeString(this.topics[i], topicStrLength[i], byteStream, pos);
+          if (!this.requestedQos || typeof this.requestedQos[i] === 'undefined') {
+            throw new Error(format(ERROR.INVALID_STATE, ['SUBSCRIBE WireMessage topic with no corresponding requestedQos']));
+          }
           byteStream[pos++] = this.requestedQos[i];
         }
         break;
 
       case MESSAGE_TYPE.UNSUBSCRIBE:
+        if (!this.topics) {
+          throw new Error(format(ERROR.INVALID_STATE, ['UNSUBSCRIBE WireMessage with no topics']));
+        }
         // UNSUBSCRIBE has a list of topic strings
         for (let i = 0; i < this.topics.length; i++) {
           pos = writeString(this.topics[i], topicStrLength[i], byteStream, pos);

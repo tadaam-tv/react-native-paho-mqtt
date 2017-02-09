@@ -1,5 +1,9 @@
+/* @flow */
+
 import { format, lengthOfUTF8, parseUTF8, stringToUTF8 } from './util';
 import { ERROR } from './constants';
+
+type Payload = string | Uint8Array;
 
 /**
  * An application message, sent or received.
@@ -36,125 +40,87 @@ import { ERROR } from './constants';
  *
  */
 export default class {
-  constructor(newPayload) {
+  _payload: Payload;
+  _destinationName: string;
+  _qos: 0 | 1 | 2 = 0;
+  _retained: boolean = false;
+  _duplicate: boolean = false;
+
+  constructor(newPayload: Payload) {
     if (!(typeof newPayload === 'string'
-        || newPayload instanceof ArrayBuffer
-        || newPayload instanceof Int8Array
         || newPayload instanceof Uint8Array
-        || newPayload instanceof Int16Array
-        || newPayload instanceof Uint16Array
-        || newPayload instanceof Int32Array
-        || newPayload instanceof Uint32Array
-        || newPayload instanceof Float32Array
-        || newPayload instanceof Float64Array
       )) {
-      throw (format(ERROR.INVALID_ARGUMENT, [newPayload, 'newPayload']));
+      throw (format(ERROR.INVALID_ARGUMENT, [newPayload.toString(), 'newPayload']));
     }
-
-    const payload = newPayload;
-
-    this._getPayloadString = function () {
-      if (typeof payload === 'string') {
-        return payload;
-      } else {
-        return parseUTF8(payload, 0, payload.length);
-      }
-    };
-
-    this._getPayloadBytes = function () {
-      if (typeof payload === 'string') {
-        const buffer = new ArrayBuffer(lengthOfUTF8(payload));
-        const byteStream = new Uint8Array(buffer);
-        stringToUTF8(payload, byteStream, 0);
-
-        return byteStream;
-      } else {
-        return payload;
-      }
-    };
-
-    let destinationName;
-    this._getDestinationName = function () {
-      return destinationName;
-    };
-    this._setDestinationName = function (newDestinationName) {
-      if (typeof newDestinationName === 'string') {
-        destinationName = newDestinationName;
-      } else {
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [newDestinationName, 'newDestinationName']));
-      }
-    };
-
-    let qos = 0;
-    this._getQos = function () {
-      return qos;
-    };
-    this._setQos = function (newQos) {
-      if (newQos === 0 || newQos === 1 || newQos === 2) {
-        qos = newQos;
-      } else {
-        throw new Error('Invalid argument:' + newQos);
-      }
-    };
-
-    let retained = false;
-    this._getRetained = function () {
-      return retained;
-    };
-    this._setRetained = function (newRetained) {
-      if (typeof newRetained === 'boolean') {
-        retained = newRetained;
-      } else {
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [newRetained, 'newRetained']));
-      }
-    };
-
-    let duplicate = false;
-    this._getDuplicate = function () {
-      return duplicate;
-    };
-    this._setDuplicate = function (newDuplicate) {
-      duplicate = newDuplicate;
-    };
+    this._payload = newPayload;
   }
 
-  get payloadString() {
-    return this._getPayloadString();
+  get payloadString(): string {
+    if (typeof this._payload === 'string') {
+      return this._payload;
+    } else {
+      return parseUTF8(this._payload, 0, this._payload.byteLength);
+    }
   }
 
-  get payloadBytes() {
-    return this._getPayloadBytes();
+  get payloadBytes(): Uint8Array {
+    const payload = this._payload;
+    if (typeof payload === 'string') {
+      const buffer = new ArrayBuffer(lengthOfUTF8(payload));
+      const byteStream = new Uint8Array(buffer);
+      stringToUTF8(payload, byteStream, 0);
+
+      return byteStream;
+    } else {
+      return payload;
+    }
   }
 
-  get destinationName() {
-    return this._getDestinationName();
+  get destinationName(): string {
+    return this._destinationName;
   }
 
-  set destinationName(newDestinationName) {
-    this._setDestinationName(newDestinationName);
+  set destinationName(newDestinationName: string) {
+    if (typeof newDestinationName === 'string') {
+      this._destinationName = newDestinationName;
+    } else {
+      throw new Error(format(ERROR.INVALID_ARGUMENT, [newDestinationName, 'newDestinationName']));
+    }
   }
 
-  get qos() {
-    return this._getQos();
+  get qos(): 0|1|2 {
+    return this._qos;
   }
 
-  set qos(newQos) {
-    this._setQos(newQos);
+  set qos(newQos: 0|1|2) {
+    if (newQos === 0 || newQos === 1 || newQos === 2) {
+      this._qos = newQos;
+    } else {
+      throw new Error('Invalid argument:' + newQos);
+    }
   }
 
-  get retained() {
-    return this._getRetained();
+  get retained(): boolean {
+    return this._retained
   }
 
-  set retained(newRetained) {
-    this._setRetained(newRetained);
+  set retained(newRetained: boolean) {
+    if (typeof newRetained === 'boolean') {
+      this._retained = newRetained;
+    } else {
+      throw new Error(format(ERROR.INVALID_ARGUMENT, [newRetained, 'newRetained']));
+    }
   }
 
-  get duplicate() {
-    return this._getDuplicate();
+  get duplicate(): boolean {
+    return this._duplicate;
   }
 
-  set duplicate(newDuplicate) {
-    this._setDuplicate(newDuplicate);
+  set duplicate(newDuplicate: boolean) {
+    if (typeof newDuplicate === 'boolean') {
+      this._duplicate = newDuplicate;
+    } else {
+      throw new Error(format(ERROR.INVALID_ARGUMENT, [newDuplicate, 'newDuplicate']));
+    }
   }
 }

@@ -17,7 +17,7 @@
 import ClientImpl from './ClientImpl';
 import Message from './Message';
 import { format, validate } from './util';
-import { ERROR } from './constants';
+import { DEFAULT_KEEPALIVE_MS, ERROR } from './constants';
 import { EventEmitter } from 'events';
 
 // ------------------------------------------------------------------------
@@ -138,7 +138,7 @@ export default class Client extends EventEmitter {
     password,
     willMessage,
     timeout = 30000,
-    keepAliveInterval = 60000,
+    keepAliveInterval = DEFAULT_KEEPALIVE_MS,
     useSSL = false,
     cleanSession = true,
     mqttVersion = 4,

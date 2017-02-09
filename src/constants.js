@@ -1,3 +1,5 @@
+export const DEFAULT_KEEPALIVE_MS = 60000;
+
 /**
  * Unique message type identifiers, with associated
  * associated integer values.
