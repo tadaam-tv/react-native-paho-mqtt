@@ -1,4 +1,4 @@
-import { Server } from "mosca";
+import { Server } from 'mosca';
 
 let broker = null;
 

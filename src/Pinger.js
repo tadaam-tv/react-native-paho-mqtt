@@ -1,6 +1,6 @@
-import WireMessage from "./WireMessage";
-import { ERROR, MESSAGE_TYPE } from "./constants";
-import { format } from "./util";
+import WireMessage from './WireMessage';
+import { ERROR, MESSAGE_TYPE } from './constants';
+import { format } from './util';
 
 /**
  * Repeat keepalive requests, monitor responses.
@@ -19,11 +19,11 @@ export default class {
 
   _doPing() {
     if (!this.isReset) {
-      this._client._trace("Pinger.doPing", "Timed out");
+      this._client._trace('Pinger.doPing', 'Timed out');
       this._client._disconnected(ERROR.PING_TIMEOUT.code, format(ERROR.PING_TIMEOUT));
     } else {
       this.isReset = false;
-      this._client._trace("Pinger.doPing", "send PINGREQ");
+      this._client._trace('Pinger.doPing', 'send PINGREQ');
       this._client.socket.send(this.pingReq);
       this.timeout = setTimeout(() => this._doPing(), this._keepAliveInterval);
     }
@@ -34,8 +34,9 @@ export default class {
     if (this.timeout) {
       clearTimeout(this.timeout);
     }
-    if (this._keepAliveInterval > 0)
+    if (this._keepAliveInterval > 0) {
       this.timeout = setTimeout(() => this._doPing(), this._keepAliveInterval);
+    }
   }
 
   cancel() {

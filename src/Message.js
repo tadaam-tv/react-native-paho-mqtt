@@ -1,5 +1,5 @@
-import { format, lengthOfUTF8, encodeMBI, parseUTF8, stringToUTF8, writeString, writeUint16, readUint16 } from "./util";
-import { ERROR } from "./constants";
+import { format, lengthOfUTF8, parseUTF8, stringToUTF8 } from './util';
+import { ERROR } from './constants';
 
 /**
  * An application message, sent or received.
@@ -37,31 +37,32 @@ import { ERROR } from "./constants";
  */
 export default class {
   constructor(newPayload) {
-    if (!(typeof newPayload === "string"
-      || newPayload instanceof ArrayBuffer
-      || newPayload instanceof Int8Array
-      || newPayload instanceof Uint8Array
-      || newPayload instanceof Int16Array
-      || newPayload instanceof Uint16Array
-      || newPayload instanceof Int32Array
-      || newPayload instanceof Uint32Array
-      || newPayload instanceof Float32Array
-      || newPayload instanceof Float64Array
-    )) {
-      throw (format(ERROR.INVALID_ARGUMENT, [newPayload, "newPayload"]));
+    if (!(typeof newPayload === 'string'
+        || newPayload instanceof ArrayBuffer
+        || newPayload instanceof Int8Array
+        || newPayload instanceof Uint8Array
+        || newPayload instanceof Int16Array
+        || newPayload instanceof Uint16Array
+        || newPayload instanceof Int32Array
+        || newPayload instanceof Uint32Array
+        || newPayload instanceof Float32Array
+        || newPayload instanceof Float64Array
+      )) {
+      throw (format(ERROR.INVALID_ARGUMENT, [newPayload, 'newPayload']));
     }
 
     const payload = newPayload;
 
     this._getPayloadString = function () {
-      if (typeof payload === "string")
+      if (typeof payload === 'string') {
         return payload;
-      else
+      } else {
         return parseUTF8(payload, 0, payload.length);
+      }
     };
 
     this._getPayloadBytes = function () {
-      if (typeof payload === "string") {
+      if (typeof payload === 'string') {
         const buffer = new ArrayBuffer(lengthOfUTF8(payload));
         const byteStream = new Uint8Array(buffer);
         stringToUTF8(payload, byteStream, 0);
@@ -72,15 +73,16 @@ export default class {
       }
     };
 
-    let destinationName = undefined;
+    let destinationName;
     this._getDestinationName = function () {
       return destinationName;
     };
     this._setDestinationName = function (newDestinationName) {
-      if (typeof newDestinationName === "string")
+      if (typeof newDestinationName === 'string') {
         destinationName = newDestinationName;
-      else
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [newDestinationName, "newDestinationName"]));
+      } else {
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [newDestinationName, 'newDestinationName']));
+      }
     };
 
     let qos = 0;
@@ -88,10 +90,11 @@ export default class {
       return qos;
     };
     this._setQos = function (newQos) {
-      if (newQos === 0 || newQos === 1 || newQos === 2)
+      if (newQos === 0 || newQos === 1 || newQos === 2) {
         qos = newQos;
-      else
-        throw new Error("Invalid argument:" + newQos);
+      } else {
+        throw new Error('Invalid argument:' + newQos);
+      }
     };
 
     let retained = false;
@@ -99,10 +102,11 @@ export default class {
       return retained;
     };
     this._setRetained = function (newRetained) {
-      if (typeof newRetained === "boolean")
+      if (typeof newRetained === 'boolean') {
         retained = newRetained;
-      else
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [newRetained, "newRetained"]));
+      } else {
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [newRetained, 'newRetained']));
+      }
     };
 
     let duplicate = false;
@@ -112,11 +116,12 @@ export default class {
     this._setDuplicate = function (newDuplicate) {
       duplicate = newDuplicate;
     };
-  };
+  }
 
   get payloadString() {
     return this._getPayloadString();
   }
+
   get payloadBytes() {
     return this._getPayloadBytes();
   }
@@ -124,6 +129,7 @@ export default class {
   get destinationName() {
     return this._getDestinationName();
   }
+
   set destinationName(newDestinationName) {
     this._setDestinationName(newDestinationName);
   }
@@ -131,6 +137,7 @@ export default class {
   get qos() {
     return this._getQos();
   }
+
   set qos(newQos) {
     this._setQos(newQos);
   }
@@ -138,6 +145,7 @@ export default class {
   get retained() {
     return this._getRetained();
   }
+
   set retained(newRetained) {
     this._setRetained(newRetained);
   }
@@ -145,8 +153,8 @@ export default class {
   get duplicate() {
     return this._getDuplicate();
   }
+
   set duplicate(newDuplicate) {
     this._setDuplicate(newDuplicate);
   }
 }
-

@@ -1,12 +1,11 @@
-import Message from "../Message";
+import Message from '../Message';
 
-test('check message properties.',function(){
-  var strMsg = 'test Msg';
-  var strDes = '/test';
-  var message = new Message(strMsg);
+test('check message properties.', function () {
+  const strMsg = 'test Msg';
+  const strDes = '/test';
+  const message = new Message(strMsg);
   message.destinationName = strDes;
 
-  console.log('Check default for message with payload.');
   expect(message.qos).toBe(0);
   expect(message.duplicate).toBe(false);
   expect(message.retained).toBe(false);
@@ -14,12 +13,10 @@ test('check message properties.',function(){
   expect(message.payloadBytes.length).toBeGreaterThan(0);
   expect(message.destinationName).toEqual(strDes);
 
-  console.log('Check empty msg to throw error');
-  expect(function(){
-    new Message();
+  expect(function () {
+    Message();
   }).toThrow();
 
-  console.log('Check message qos');
   message.qos = 0;
   expect(message.qos).toBe(0);
   message.qos = 1;
@@ -28,26 +25,22 @@ test('check message properties.',function(){
   expect(message.qos).toBe(2);
 
   //illegal argument exception
-  expect(function(){
+  expect(function () {
     message.qos = -1;
   }).toThrow();
-  expect(function(){
+  expect(function () {
     message.qos = 1;
   }).not.toThrow();
 
-  console.log('Check payload');
-  var strPayload = 'payload is a string';
+  const strPayload = 'payload is a string';
   message.payloadString = strPayload;
-  console.log('not allowed to set payload');
   expect(message.payloadString).not.toEqual(strPayload);
 
-  console.log('Check retained');
   message.retained = false;
   expect(message.retained).toBe(false);
   message.retained = true;
   expect(message.retained).toBe(true);
 
-  console.log('Check duplicate');
   message.duplicate = false;
   expect(message.duplicate).toBe(false);
   message.duplicate = true;

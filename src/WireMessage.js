@@ -1,5 +1,5 @@
-import { encodeMBI, lengthOfUTF8, writeString, writeUint16 } from "./util";
-import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from "./constants";
+import { encodeMBI, lengthOfUTF8, writeString, writeUint16 } from './util';
+import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from './constants';
 
 
 /**
@@ -15,7 +15,7 @@ import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from "./co
  * topics:      array of strings (SUBSCRIBE, UNSUBSCRIBE)
  * requestQoS:    array of QoS values [0..2]
  *
- * "Flag" properties
+ * 'Flag' properties
  * cleanSession:  true if present / false if absent (CONNECT)
  * willMessage:    true if present / false if absent (CONNECT)
  * isRetained:    true if present / false if absent (CONNECT)
@@ -27,6 +27,8 @@ import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from "./co
  * @ignore
  */
 export default class {
+  messageIdentifier = null;
+
   constructor(type, options = {}) {
     this.type = type;
     Object.keys(options).forEach((name) => {
@@ -50,8 +52,9 @@ export default class {
     let payloadBytes, willMessagePayloadBytes;
 
     // if the message contains a messageIdentifier then we need two bytes for that
-    if (this.messageIdentifier != undefined)
+    if (this.messageIdentifier) {
       remLength += 2;
+    }
 
     switch (this.type) {
       // If this a Connect then we need to include 12 bytes for its header
@@ -66,18 +69,21 @@ export default class {
         }
 
         remLength += lengthOfUTF8(this.clientId) + 2;
-        if (this.willMessage != undefined) {
+        if (this.willMessage) {
           remLength += lengthOfUTF8(this.willMessage.destinationName) + 2;
           // Will message is always a string, sent as UTF-8 characters with a preceding length.
-          let willMessagePayloadBytes = this.willMessage.payloadBytes;
-          if (!(willMessagePayloadBytes instanceof Uint8Array))
+          willMessagePayloadBytes = this.willMessage.payloadBytes;
+          if (!(willMessagePayloadBytes instanceof Uint8Array)) {
             willMessagePayloadBytes = new Uint8Array(payloadBytes);
+          }
           remLength += willMessagePayloadBytes.byteLength + 2;
         }
-        if (this.userName != undefined)
+        if (this.userName) {
           remLength += lengthOfUTF8(this.userName) + 2;
-        if (this.password != undefined)
+        }
+        if (this.password) {
           remLength += lengthOfUTF8(this.password) + 2;
+        }
         break;
 
       // Subscribe, Unsubscribe can both contain topic strings
@@ -104,24 +110,28 @@ export default class {
         break;
 
       case MESSAGE_TYPE.PUBLISH:
-        if (this.payloadMessage.duplicate) first |= 0x08;
+        if (this.payloadMessage.duplicate) {
+          first |= 0x08;
+        }
         first = first |= (this.payloadMessage.qos << 1);
-        if (this.payloadMessage.retained) first |= 0x01;
+        if (this.payloadMessage.retained) {
+          first |= 0x01;
+        }
         destinationNameLength = lengthOfUTF8(this.payloadMessage.destinationName);
         remLength += destinationNameLength + 2;
         payloadBytes = this.payloadMessage.payloadBytes;
         remLength += payloadBytes.byteLength;
-        if (payloadBytes instanceof ArrayBuffer)
+        if (payloadBytes instanceof ArrayBuffer) {
           payloadBytes = new Uint8Array(payloadBytes);
-        else if (!(payloadBytes instanceof Uint8Array))
+        } else if (!(payloadBytes instanceof Uint8Array)) {
           payloadBytes = new Uint8Array(payloadBytes.buffer);
+        }
         break;
 
       case MESSAGE_TYPE.DISCONNECT:
         break;
 
       default:
-        ;
     }
 
     // Now we can allocate a buffer for the message
@@ -136,9 +146,9 @@ export default class {
     byteStream.set(mbi, 1);
 
     // If this is a PUBLISH then the variable header starts with a topic
-    if (this.type === MESSAGE_TYPE.PUBLISH)
+    if (this.type === MESSAGE_TYPE.PUBLISH) {
       pos = writeString(this.payloadMessage.destinationName, destinationNameLength, byteStream, pos);
-    // If this is a CONNECT then the variable header contains the protocol name/version, flags and keepalive time
+    }// If this is a CONNECT then the variable header contains the protocol name/version, flags and keepalive time
 
     else if (this.type === MESSAGE_TYPE.CONNECT) {
       switch (this.mqttVersion) {
@@ -151,42 +161,48 @@ export default class {
           pos += MqttProtoIdentifierv4.length;
           break;
       }
-      var connectFlags = 0;
-      if (this.cleanSession)
+      let connectFlags = 0;
+      if (this.cleanSession) {
         connectFlags = 0x02;
-      if (this.willMessage != undefined) {
+      }
+      if (this.willMessage) {
         connectFlags |= 0x04;
         connectFlags |= (this.willMessage.qos << 3);
         if (this.willMessage.retained) {
           connectFlags |= 0x20;
         }
       }
-      if (this.userName != undefined)
+      if (this.userName) {
         connectFlags |= 0x80;
-      if (this.password != undefined)
+      }
+      if (this.password) {
         connectFlags |= 0x40;
+      }
       byteStream[pos++] = connectFlags;
       pos = writeUint16(this.keepAliveInterval, byteStream, pos);
     }
 
     // Output the messageIdentifier - if there is one
-    if (this.messageIdentifier != undefined)
+    if (this.messageIdentifier) {
       pos = writeUint16(this.messageIdentifier, byteStream, pos);
+    }
 
     switch (this.type) {
       case MESSAGE_TYPE.CONNECT:
         pos = writeString(this.clientId, lengthOfUTF8(this.clientId), byteStream, pos);
-        if (this.willMessage != undefined) {
+        if (this.willMessage) {
           pos = writeString(this.willMessage.destinationName, lengthOfUTF8(this.willMessage.destinationName), byteStream, pos);
           pos = writeUint16(willMessagePayloadBytes.byteLength, byteStream, pos);
           byteStream.set(willMessagePayloadBytes, pos);
           pos += willMessagePayloadBytes.byteLength;
 
         }
-        if (this.userName != undefined)
+        if (this.userName) {
           pos = writeString(this.userName, lengthOfUTF8(this.userName), byteStream, pos);
-        if (this.password != undefined)
+        }
+        if (this.password) {
           pos = writeString(this.password, lengthOfUTF8(this.password), byteStream, pos);
+        }
         break;
 
       case MESSAGE_TYPE.PUBLISH:
@@ -210,8 +226,9 @@ export default class {
 
       case MESSAGE_TYPE.UNSUBSCRIBE:
         // UNSUBSCRIBE has a list of topic strings
-        for (let i = 0; i < this.topics.length; i++)
+        for (let i = 0; i < this.topics.length; i++) {
           pos = writeString(this.topics[i], topicStrLength[i], byteStream, pos);
+        }
         break;
 
       default:

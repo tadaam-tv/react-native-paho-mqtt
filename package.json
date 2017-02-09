@@ -3,9 +3,10 @@
   "description": "A fork of the Paho javascript client for use in React Native",
   "version": "0.0.5",
   "scripts": {
+    "lint": "eslint .",
     "flow": "flow",
     "jest": "jest",
-    "test": "flow && jest"
+    "test": "eslint . && flow && jest"
   },
   "homepage": "https://github.com/rh389/paho.mqtt.javascript",
   "license": "SEE LICENSE IN epl-v10",
@@ -20,10 +21,12 @@
   "devDependencies": {
     "babel": "^6.5.2",
     "babel-cli": "^6.22.2",
+    "babel-eslint": "^7.1.1",
     "babel-jest": "^18.0.0",
     "babel-plugin-transform-runtime": "^6.22.0",
     "babel-preset-react-native": "^1.9.1",
     "babel-runtime": "^6.22.0",
+    "eslint": "^3.15.0",
     "flow-bin": "0.38",
     "jest-cli": "^18.1.0",
     "mosca": "^2.2.0",

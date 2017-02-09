@@ -1,6 +1,6 @@
-import { ERROR, MESSAGE_TYPE } from "./constants";
-import WireMessage from "./WireMessage";
-import Message from "./Message";
+import { ERROR, MESSAGE_TYPE } from './constants';
+import WireMessage from './WireMessage';
+import Message from './Message';
 
 /**
  * Format an error message text.
@@ -12,9 +12,9 @@ import Message from "./Message";
 export function format(error, substitutions) {
   let text = error.text;
   if (substitutions) {
-    let field, start;
+    let field;
     substitutions.forEach((substitution, i) => {
-      field = "{" + i + "}";
+      field = '{' + i + '}';
       text = text.replace(field, substitution);
     });
   }
@@ -92,16 +92,17 @@ export function lengthOfUTF8(input) {
     const charCode = input.charCodeAt(i);
     if (charCode > 0x7FF) {
       // Surrogate pair means its a 4 byte character
-      if (0xD800 <= charCode && charCode <= 0xDBFF) {
+      if (charCode >= 0xD800 && charCode <= 0xDBFF) {
         i++;
         output++;
       }
       output += 3;
     }
-    else if (charCode > 0x7F)
+    else if (charCode > 0x7F) {
       output += 2;
-    else
+    } else {
       output++;
+    }
   }
   return output;
 }
@@ -116,7 +117,7 @@ export function stringToUTF8(input, output, start) {
     let charCode = input.charCodeAt(i);
 
     // Check for a surrogate pair.
-    if (0xD800 <= charCode && charCode <= 0xDBFF) {
+    if (charCode >= 0xD800 && charCode <= 0xDBFF) {
       const lowCharCode = input.charCodeAt(++i);
       if (isNaN(lowCharCode)) {
         throw new Error(format(ERROR.MALFORMED_UNICODE, [charCode, lowCharCode]));
@@ -145,34 +146,42 @@ export function stringToUTF8(input, output, start) {
 }
 
 export function parseUTF8(input, offset, length) {
-  let output = "";
+  let output = '';
   let utf16;
   let pos = offset;
 
   while (pos < offset + length) {
     let byte1 = input[pos++];
-    if (byte1 < 128)
+    if (byte1 < 128) {
       utf16 = byte1;
-    else {
+    } else {
       let byte2 = input[pos++] - 128;
-      if (byte2 < 0)
-        throw new Error(format(ERROR.MALFORMED_UTF, [byte1.toString(16), byte2.toString(16), ""]));
+      if (byte2 < 0) {
+        throw new Error(format(ERROR.MALFORMED_UTF, [byte1.toString(16), byte2.toString(16), '']));
+      }
       if (byte1 < 0xE0)             // 2 byte character
+      {
         utf16 = 64 * (byte1 - 0xC0) + byte2;
-      else {
+      } else {
         let byte3 = input[pos++] - 128;
-        if (byte3 < 0)
+        if (byte3 < 0) {
           throw new Error(format(ERROR.MALFORMED_UTF, [byte1.toString(16), byte2.toString(16), byte3.toString(16)]));
+        }
         if (byte1 < 0xF0)        // 3 byte character
+        {
           utf16 = 4096 * (byte1 - 0xE0) + 64 * byte2 + byte3;
-        else {
+        } else {
           let byte4 = input[pos++] - 128;
-          if (byte4 < 0)
+          if (byte4 < 0) {
             throw new Error(format(ERROR.MALFORMED_UTF, [byte1.toString(16), byte2.toString(16), byte3.toString(16), byte4.toString(16)]));
+          }
           if (byte1 < 0xF8)        // 4 byte character
+          {
             utf16 = 262144 * (byte1 - 0xF0) + 4096 * byte2 + 64 * byte3 + byte4;
-          else                     // longer encodings are not supported
+          } else                     // longer encodings are not supported
+          {
             throw new Error(format(ERROR.MALFORMED_UTF, [byte1.toString(16), byte2.toString(16), byte3.toString(16), byte4.toString(16)]));
+          }
         }
       }
     }
@@ -240,10 +249,12 @@ export function decodeMessage(input, pos) {
       }
 
       const message = new Message(input.subarray(pos, endPos));
-      if ((messageInfo & 0x01) === 0x01)
+      if ((messageInfo & 0x01) === 0x01) {
         message.retained = true;
-      if ((messageInfo & 0x08) === 0x08)
+      }
+      if ((messageInfo & 0x08) === 0x08) {
         message.duplicate = true;
+      }
       message.qos = qos;
       message.destinationName = topicName;
       wireMessage.payloadMessage = message;

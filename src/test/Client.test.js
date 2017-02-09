@@ -1,24 +1,24 @@
-import { Client } from "../..";
-import { path, port, host } from "./.support";
+import { Client } from '../..';
+import { host, path, port } from './.support';
 
-import { w3cwebsocket as webSocket } from "websocket";
-import { LocalStorage } from "node-localstorage";
+import { w3cwebsocket as webSocket } from 'websocket';
+import { LocalStorage } from 'node-localstorage';
 
 const storage = new LocalStorage('./tmp');
 
 describe('client-uris', function () {
 
   test('should create a new client with a default path', function () {
-    const client = new Client({ host, port, clientId: "testclientid", webSocket, storage });
+    const client = new Client({ host, port, clientId: 'testclientid', webSocket, storage });
     expect(client).not.toBe(null);
     expect(client.host).toBe(host);
     expect(client.port).toBe(port);
-    expect(client.path).toBe("/mqtt");
+    expect(client.path).toBe('/mqtt');
 
   });
 
   test('should create a new client with a path', function () {
-    const client = new Client({ host, port, path, clientId: "testclientid", webSocket, storage });
+    const client = new Client({ host, port, path, clientId: 'testclientid', webSocket, storage });
 
     expect(client).not.toBe(null);
     expect(client.host).toBe(host);
@@ -28,8 +28,8 @@ describe('client-uris', function () {
 
   test('should create a new client with a uri', function () {
     const client = new Client({
-      host: "ws://" + host + ":" + port + path,
-      clientId: "testclientid",
+      host: 'ws://' + host + ':' + port + path,
+      clientId: 'testclientid',
       webSocket,
       storage
     });
@@ -44,7 +44,7 @@ describe('client-uris', function () {
     let client = null;
     let error;
     try {
-      client = new Client({ host: "http://example.com", clientId: "testclientid", webSocket, storage });
+      client = new Client({ host: 'http://example.com', clientId: 'testclientid', webSocket, storage });
     } catch (err) {
       error = err;
     }

@@ -14,11 +14,11 @@
  *    Andrew Banks - initial API and implementation and initial documentation
  *******************************************************************************/
 
-import ClientImpl from "./ClientImpl";
-import Message from "./Message";
-import { format, validate } from "./util";
-import { ERROR } from "./constants";
-import { EventEmitter } from "events";
+import ClientImpl from './ClientImpl';
+import Message from './Message';
+import { format, validate } from './util';
+import { ERROR } from './constants';
+import { EventEmitter } from 'events';
 
 // ------------------------------------------------------------------------
 // Public API.
@@ -51,8 +51,9 @@ export default class Client extends EventEmitter {
     super();
     let uri;
 
-    if (typeof host !== "string")
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof host, "host"]));
+    if (typeof host !== 'string') {
+      throw new Error(format(ERROR.INVALID_TYPE, [typeof host, 'host']));
+    }
 
     if (!port) {
       // host: must be full ws:// uri
@@ -60,34 +61,37 @@ export default class Client extends EventEmitter {
       let match = uri.match(/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/);
       if (match) {
         host = match[4] || match[2];
-        port = parseInt(match[7]);
+        port = parseInt(match[7], 10);
         path = match[8];
       } else {
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [host, "host"]));
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [host, 'host']));
       }
     } else {
       if (!path) {
-        path = "/mqtt";
+        path = '/mqtt';
       }
-      if (typeof port !== "number" || port < 0)
-        throw new Error(format(ERROR.INVALID_TYPE, [typeof port, "port"]));
-      if (typeof path !== "string")
-        throw new Error(format(ERROR.INVALID_TYPE, [typeof path, "path"]));
+      if (typeof port !== 'number' || port < 0) {
+        throw new Error(format(ERROR.INVALID_TYPE, [typeof port, 'port']));
+      }
+      if (typeof path !== 'string') {
+        throw new Error(format(ERROR.INVALID_TYPE, [typeof path, 'path']));
+      }
 
-      const ipv6AddSBracket = (host.indexOf(":") !== -1 && host.slice(0, 1) !== "[" && host.slice(-1) !== "]");
-      uri = "ws://" + (ipv6AddSBracket ? "[" + host + "]" : host) + ":" + port + path;
+      const ipv6AddSBracket = (host.indexOf(':') !== -1 && host.slice(0, 1) !== '[' && host.slice(-1) !== ']');
+      uri = 'ws://' + (ipv6AddSBracket ? '[' + host + ']' : host) + ':' + port + path;
     }
 
     let clientIdLength = 0;
     for (let i = 0; i < clientId.length; i++) {
       let charCode = clientId.charCodeAt(i);
-      if (0xD800 <= charCode && charCode <= 0xDBFF) {
+      if (charCode >= 0xD800 && charCode <= 0xDBFF) {
         i++; // Surrogate pair.
       }
       clientIdLength++;
     }
-    if (typeof clientId !== "string" || clientIdLength > 65535)
-      throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, "clientId"]));
+    if (typeof clientId !== 'string' || clientIdLength > 65535) {
+      throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, 'clientId']));
+    }
 
     this._client = new ClientImpl(uri, host, port, path, clientId, storage, webSocket);
 
@@ -153,47 +157,51 @@ export default class Client extends EventEmitter {
       allowMqttVersionFallback,
       uris
     }, {
-      timeout: "number",
-      userName: "?string",
-      password: "?string",
-      willMessage: "?object",
-      keepAliveInterval: "number",
-      cleanSession: "boolean",
-      useSSL: "boolean",
-      mqttVersion: "number",
-      allowMqttVersionFallback: "boolean",
-      uris: "?object"
+      timeout: 'number',
+      userName: '?string',
+      password: '?string',
+      willMessage: '?object',
+      keepAliveInterval: 'number',
+      cleanSession: 'boolean',
+      useSSL: 'boolean',
+      mqttVersion: 'number',
+      allowMqttVersionFallback: 'boolean',
+      uris: '?object'
     });
 
     return new Promise((resolve, reject) => {
 
       if (mqttVersion > 4 || mqttVersion < 3) {
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [mqttVersion, "mqttVersion"]));
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [mqttVersion, 'mqttVersion']));
       }
 
       //Check that if password is set, so is username
-      if (password !== undefined && userName === undefined)
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [password, "password"]))
+      if (password !== undefined && userName === undefined) {
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [password, 'password']));
+      }
 
       if (willMessage) {
-        if (!(willMessage instanceof Message))
-          throw new Error(format(ERROR.INVALID_TYPE, [willMessage, "willMessage"]));
+        if (!(willMessage instanceof Message)) {
+          throw new Error(format(ERROR.INVALID_TYPE, [willMessage, 'willMessage']));
+        }
         // The will message must have a payload that can be represented as a string.
         // Cause the willMessage to throw an exception if this is not the case.
         willMessage.stringPayload;
 
-        if (typeof willMessage.destinationName === "undefined")
-          throw new Error(format(ERROR.INVALID_TYPE, [typeof willMessage.destinationName, "willMessage.destinationName"]));
+        if (typeof willMessage.destinationName === 'undefined') {
+          throw new Error(format(ERROR.INVALID_TYPE, [typeof willMessage.destinationName, 'willMessage.destinationName']));
+        }
       }
 
       if (uris) {
-        if (!Array.isArray(uris) || uris.length < 1)
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [uris, "uris"]));
+        if (!Array.isArray(uris) || uris.length < 1) {
+          throw new Error(format(ERROR.INVALID_ARGUMENT, [uris, 'uris']));
+        }
 
-        // Validate that all hosts are URIs, or none are, and validate the corresponding port
-        uris.forEach((host) => {
-          if (/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/.test(host) !== usingURIs) {
-            throw new Error(format(ERROR.INVALID_ARGUMENT, [host, "hosts[" + i + "]"]));
+        // Validate that all URIs
+        uris.forEach((uri, i) => {
+          if (!/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/.test(uri)) {
+            throw new Error(format(ERROR.INVALID_ARGUMENT, [uri, 'uris[' + i + ']']));
           }
         });
       }
@@ -226,12 +234,15 @@ export default class Client extends EventEmitter {
    */
   subscribe(filter, { qos = 0, timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      if (typeof filter !== "string")
-        throw new Error("Invalid argument:" + filter);
-      if (typeof timeout !== "number")
-        throw new Error("Invalid argument:" + timeout);
-      if ([0,1,2].indexOf(qos) === -1)
-        throw new Error("Invalid argument:" + qos);
+      if (typeof filter !== 'string') {
+        throw new Error('Invalid argument:' + filter);
+      }
+      if (typeof timeout !== 'number') {
+        throw new Error('Invalid argument:' + timeout);
+      }
+      if ([0, 1, 2].indexOf(qos) === -1) {
+        throw new Error('Invalid argument:' + qos);
+      }
 
       this._client.subscribe(filter, {
         timeout,
@@ -251,10 +262,12 @@ export default class Client extends EventEmitter {
    */
   unsubscribe(filter, { timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      if (typeof filter !== "string")
-        throw new Error("Invalid argument:" + filter);
-      if (typeof timeout !== "number")
-        throw new Error("Invalid argument:" + timeout);
+      if (typeof filter !== 'string') {
+        throw new Error('Invalid argument:' + filter);
+      }
+      if (typeof timeout !== 'number') {
+        throw new Error('Invalid argument:' + timeout);
+      }
 
       this._client.unsubscribe(filter, {
         timeout,
@@ -289,27 +302,31 @@ export default class Client extends EventEmitter {
   send(topic, payload, qos, retained) {
     let message;
 
-    if (arguments.length == 0) {
-      throw new Error("Invalid argument." + "length");
+    if (arguments.length === 0) {
+      throw new Error('Invalid argument.' + 'length');
 
-    } else if (arguments.length == 1) {
+    } else if (arguments.length === 1) {
 
-      if (!(topic instanceof Message) && (typeof topic !== "string"))
-        throw new Error("Invalid argument:" + typeof topic);
+      if (!(topic instanceof Message) && (typeof topic !== 'string')) {
+        throw new Error('Invalid argument:' + typeof topic);
+      }
 
       message = topic;
-      if (typeof message.destinationName === "undefined")
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [message.destinationName, "Message.destinationName"]));
+      if (typeof message.destinationName === 'undefined') {
+        throw new Error(format(ERROR.INVALID_ARGUMENT, [message.destinationName, 'Message.destinationName']));
+      }
       this._client.send(message);
 
     } else {
       //parameter checking in Message object
       message = new Message(payload);
       message.destinationName = topic;
-      if (arguments.length >= 3)
+      if (arguments.length >= 3) {
         message.qos = qos;
-      if (arguments.length >= 4)
+      }
+      if (arguments.length >= 4) {
         message.retained = retained;
+      }
       this._client.send(message);
     }
   }
@@ -352,7 +369,7 @@ export default class Client extends EventEmitter {
    */
   startTrace() {
     this._client.startTrace();
-  };
+  }
 
   /**
    * Stop tracing.
@@ -389,10 +406,10 @@ export default class Client extends EventEmitter {
   }
 
   set trace(trace) {
-    if (typeof trace === "function") {
+    if (typeof trace === 'function') {
       this._client.traceFunction = trace;
     } else {
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof trace, "onTrace"]));
+      throw new Error(format(ERROR.INVALID_TYPE, [typeof trace, 'onTrace']));
     }
   }
-};
+}

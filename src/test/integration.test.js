@@ -1,12 +1,12 @@
-import { Client } from "../../";
-import { host, port, path, webSocket, storage, mqttVersion, startBroker, stopBroker } from './.support';
-import Message from "../Message";
+import { Client } from '../../';
+import { host, mqttVersion, path, port, startBroker, stopBroker, storage, webSocket } from './.support';
+import Message from '../Message';
 
 const client = new Client({
   host,
   port,
   path,
-  clientId: "testclientid",
+  clientId: 'testclientid',
   webSocket,
   storage,
 });
@@ -28,9 +28,9 @@ describe('Integration tests', () => {
       expect(message.payloadString).toEqual('Hello');
       done();
     });
-    const message = new Message("Hello");
-    message.destinationName = "/World";
-    await client.subscribe("/World");
+    const message = new Message('Hello');
+    message.destinationName = '/World';
+    await client.subscribe('/World');
     await client.send(message);
   });
 
