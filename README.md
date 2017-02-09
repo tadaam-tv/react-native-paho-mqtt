@@ -1,4 +1,5 @@
 # Eclipse Paho JavaScript client forked for React Native
+[![Build Status](https://travis-ci.org/rh389/paho.mqtt.javascript.svg?branch=master)](https://travis-ci.org/rh389/paho.mqtt.javascript)
 
 A fork of [paho-client](https://www.npmjs.com/package/paho-client), this project exists to provide an ES6-ready, Promise-based, react-native compatible version of the Eclipse Paho client
 
