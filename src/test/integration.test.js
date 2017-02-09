@@ -1,51 +1,46 @@
 import { Client } from "../../";
-import * as settings from './.support';
+import { host, port, path, webSocket, storage, mqttVersion, startBroker, stopBroker } from './.support';
 import Message from "../Message";
 
 const client = new Client({
-  host: settings.host,
-  port: settings.port,
-  path: settings.path,
+  host,
+  port,
+  path,
   clientId: "testclientid",
-  webSocket: settings.webSocket,
-  storage: settings.storage
+  webSocket,
+  storage,
 });
 
 test('client is set up correctly', function () {
-  expect(client.host).toBe(settings.host);
-  expect(client.port).toBe(settings.port);
-  expect(client.path).toBe(settings.path);
+  expect(client.host).toBe(host);
+  expect(client.port).toBe(port);
+  expect(client.path).toBe(path);
 });
 
 describe('Integration tests', () => {
-  beforeAll(() => {
-    return settings.startBroker().then(() =>
-      client.connect({ mqttVersion: settings.mqttVersion })
-    ).then((a) => {
-      console.log(a)
-    })
-      .catch(err => {
-      console.warn(err);
-    });
+  beforeAll(async () => {
+    await startBroker();
+    await client.connect({ mqttVersion });
   });
 
-  test('should send and receive a message', function (done) {
+  test('should send and receive a message', async (done) => {
     client.on('messageReceived', (message) => {
       expect(message.payloadString).toEqual('Hello');
       done();
     });
-    message = new Message("Hello");
+    const message = new Message("Hello");
     message.destinationName = "/World";
-    client.subscribe("/World").then(() => client.send(message)).catch(err => {
-      console.warn(err);
-    });
+    await client.subscribe("/World");
+    await client.send(message);
   });
 
-  test('should disconnect and reconnect cleanly', function () {
-    return client.disconnect().then(() => client.connect({ mqttVersion: settings.mqttVersion }));
+  test('should disconnect and reconnect cleanly', async () => {
+    await client.disconnect();
+    await client.connect({ mqttVersion });
   });
 
-  afterAll(() => {
-    return client.disconnect().then(() => settings.stopBroker());
+  afterAll(async () => {
+    await client.disconnect();
+    await stopBroker();
   });
 });
