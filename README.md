@@ -32,31 +32,31 @@ const client = new Client({ host: 'iot.eclipse.org', port: 80, path: '/ws', clie
 
 // set event handlers
 client.on('connectionLost', (responseObject) => {
-    if (responseObject.errorCode !== 0) {
-      console.log(responseObject.errorMessage);
-    }
+  if (responseObject.errorCode !== 0) {
+    console.log(responseObject.errorMessage);
+  }
 });
 client.on('messageReceived', (message) => {
-    console.log(message.payloadString);
+  console.log(message.payloadString);
 });
 
 // connect the client
 client.connect()
-    .then(() => {
-      // Once a connection has been made, make a subscription and send a message.
-      console.log("onConnect");
-      return client.subscribe("World");
-    })
-    .then(() => {
-      message = new Message("Hello");
-      message.destinationName = "World";
-      client.send(message);
-    })
-    .catch((responseObject) => {
-      if (responseObject.errorCode !== 0) {
-        console.log("onConnectionLost:"+responseObject.errorMessage);
-      }
-    })
+  .then(() => {
+    // Once a connection has been made, make a subscription and send a message.
+    console.log('onConnect');
+    return client.subscribe('World');
+  })
+  .then(() => {
+    message = new Message('Hello');
+    message.destinationName = 'World';
+    client.send(message);
+  })
+  .catch((responseObject) => {
+    if (responseObject.errorCode !== 0) {
+      console.log('onConnectionLost:' + responseObject.errorMessage);
+    }
+  })
 ;
 
 ```
