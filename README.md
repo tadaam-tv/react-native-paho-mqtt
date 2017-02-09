@@ -48,7 +48,7 @@ client.connect()
     return client.subscribe('World');
   })
   .then(() => {
-    message = new Message('Hello');
+    const message = new Message('Hello');
     message.destinationName = 'World';
     client.send(message);
   })
