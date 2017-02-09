@@ -8,7 +8,7 @@
     "jest": "jest",
     "test": "eslint . && flow && jest"
   },
-  "homepage": "https://github.com/rh389/paho.mqtt.javascript",
+  "homepage": "https://github.com/rh389/react-native-paho-mqtt",
   "license": "SEE LICENSE IN epl-v10",
   "keywords": [
     "mqtt",
@@ -16,7 +16,7 @@
     "paho",
     "client"
   ],
-  "repository": "rh389/paho.mqtt.javascript",
+  "repository": "rh389/react-native-paho-mqtt",
   "dependencies": {},
   "devDependencies": {
     "babel": "^6.5.2",
