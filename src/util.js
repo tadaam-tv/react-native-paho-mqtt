@@ -1,4 +1,6 @@
-import { ERROR } from "./constants";
+import { ERROR, MESSAGE_TYPE } from "./constants";
+import WireMessage from "./WireMessage";
+import Message from "./Message";
 
 /**
  * Format an error message text.
@@ -184,4 +186,85 @@ export function parseUTF8(input, offset, length) {
     output += String.fromCharCode(utf16);
   }
   return output;
+}
+
+export function decodeMessage(input, pos) {
+  const startingPos = pos;
+  let first = input[pos];
+  const type = first >> 4;
+  const messageInfo = (first & 0x0f);
+  pos += 1;
+
+
+  // Decode the remaining length (MBI format)
+
+  let digit;
+  let remLength = 0;
+  let multiplier = 1;
+  do {
+    if (pos === input.length) {
+      return [null, startingPos];
+    }
+    digit = input[pos++];
+    remLength += ((digit & 0x7F) * multiplier);
+    multiplier *= 128;
+  } while ((digit & 0x80) !== 0);
+
+  const endPos = pos + remLength;
+  if (endPos > input.length) {
+    return [null, startingPos];
+  }
+
+  const wireMessage = new WireMessage(type);
+  switch (type) {
+    case MESSAGE_TYPE.CONNACK:
+      const connectAcknowledgeFlags = input[pos++];
+      const sessionPresent = connectAcknowledgeFlags & 0x01;
+      if (sessionPresent) {
+        wireMessage.sessionPresent = true;
+      }
+      wireMessage.returnCode = input[pos++];
+      break;
+
+    case MESSAGE_TYPE.PUBLISH:
+      const qos = (messageInfo >> 1) & 0x03;
+
+      const len = readUint16(input, pos);
+      pos += 2;
+      const topicName = parseUTF8(input, pos, len);
+      pos += len;
+      // If QoS 1 or 2 there will be a messageIdentifier
+      if (qos > 0) {
+        wireMessage.messageIdentifier = readUint16(input, pos);
+        pos += 2;
+      }
+
+      const message = new Message(input.subarray(pos, endPos));
+      if ((messageInfo & 0x01) === 0x01)
+        message.retained = true;
+      if ((messageInfo & 0x08) === 0x08)
+        message.duplicate = true;
+      message.qos = qos;
+      message.destinationName = topicName;
+      wireMessage.payloadMessage = message;
+      break;
+
+    case  MESSAGE_TYPE.PUBACK:
+    case  MESSAGE_TYPE.PUBREC:
+    case  MESSAGE_TYPE.PUBREL:
+    case  MESSAGE_TYPE.PUBCOMP:
+    case  MESSAGE_TYPE.UNSUBACK:
+      wireMessage.messageIdentifier = readUint16(input, pos);
+      break;
+
+    case  MESSAGE_TYPE.SUBACK:
+      wireMessage.messageIdentifier = readUint16(input, pos);
+      pos += 2;
+      wireMessage.returnCode = input.subarray(pos, endPos);
+      break;
+
+    default:
+  }
+
+  return [wireMessage, endPos];
 }
