@@ -16,8 +16,7 @@ type ConnectOptions = {
   userName?: string,
   password?: string,
   willMessage: ?Message,
-  cleanSession: boolean,
-  allowMqttVersionFallback: boolean
+  cleanSession: boolean
 }
 
 type Storage = Object & { setItem: (key: string, item: any) => void, getItem: (key: string) => any };
@@ -775,13 +774,7 @@ class ClientImplementation {
       } else {
         invariant(connectOptions, format(ERROR.INVALID_STATE, ['connectOptions not set']));
         // Otherwise we never had a connection, so indicate that the connect has failed.
-        if (connectOptions.mqttVersion === 4 && connectOptions.allowMqttVersionFallback === true) {
-          this._trace('Failed to connect V4, dropping back to V3');
-          connectOptions.mqttVersion = 3;
-          if (this.uri) {
-            this._doConnect(this.uri);
-          }
-        } else if (connectOptions.onFailure) {
+        if (connectOptions.onFailure) {
           connectOptions.onFailure(new Error(errorText, errorCode));
         }
     }

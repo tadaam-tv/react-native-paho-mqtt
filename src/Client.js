@@ -120,7 +120,6 @@ export default class Client extends EventEmitter {
    * @param {Message} [willMessage] - sent by the server when the client disconnects abnormally.
    * @param {number} [keepAliveInterval=60] - ping the server every n ms to avoid being disconnected by the remote end.
    * @param {number} [mqttVersion=4] - protocol version to use (3 or 4).
-   * @param {number} [allowMqttVersionFallback=true] - if mqttVersion==4 and connecting fails, try version 3.
    * @param {boolean} [cleanSession=true] - if true the client and server persistent state is deleted on successful connect.
    */
   connect({
@@ -130,8 +129,7 @@ export default class Client extends EventEmitter {
     timeout = 30000,
     keepAliveInterval = DEFAULT_KEEPALIVE_SECONDS,
     cleanSession = true,
-    mqttVersion = 4,
-    allowMqttVersionFallback = true
+    mqttVersion = 4
   }: ConnectOptions = {}) {
     validate({
       userName,
@@ -140,8 +138,7 @@ export default class Client extends EventEmitter {
       timeout,
       keepAliveInterval,
       cleanSession,
-      mqttVersion,
-      allowMqttVersionFallback
+      mqttVersion
     }, {
       timeout: 'number',
       userName: '?string',
@@ -149,8 +146,7 @@ export default class Client extends EventEmitter {
       willMessage: '?object',
       keepAliveInterval: 'number',
       cleanSession: 'boolean',
-      mqttVersion: 'number',
-      allowMqttVersionFallback: 'boolean'
+      mqttVersion: 'number'
     });
 
     return new Promise((resolve, reject) => {
@@ -185,7 +181,6 @@ export default class Client extends EventEmitter {
         keepAliveInterval,
         cleanSession,
         mqttVersion: mqttVersion === 4 ? 4 : 3,
-        allowMqttVersionFallback,
         onSuccess: resolve,
         onFailure: reject
       });
