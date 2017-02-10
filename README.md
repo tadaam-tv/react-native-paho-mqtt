@@ -28,7 +28,7 @@ const myStorage = {
 };
 
 // Create a client instance
-const client = new Client({ host: 'iot.eclipse.org', port: 80, path: '/ws', clientId: 'clientId', storage: myStorage });
+const client = new Client({ uri: 'ws://iot.eclipse.org:80/ws', clientId: 'clientId', storage: myStorage });
 
 // set event handlers
 client.on('connectionLost', (responseObject) => {
