@@ -1,4 +1,4 @@
-export const DEFAULT_KEEPALIVE_MS = 60000;
+export const DEFAULT_KEEPALIVE_SECONDS = 60;
 
 /**
  * Unique message type identifiers, with associated

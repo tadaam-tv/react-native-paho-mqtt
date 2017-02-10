@@ -5,15 +5,21 @@ import { decodeMessage, format, invariant } from './util';
 import { CONNACK_RC, ERROR, MESSAGE_TYPE } from './constants';
 import Pinger from './Pinger';
 import WireMessage from './WireMessage';
+import ConnectMessage from './ConnectMessage';
 
 type ConnectOptions = {
   uris?: string[],
   timeout?: number,
-  mqttVersion?: number,
-  keepAliveInterval?: number,
+  mqttVersion: 3 | 4,
+  keepAliveInterval: number,
   useSSL?: boolean,
   onSuccess: ?() => void,
-  onFailure: ?(Error) => void
+  onFailure: ?(Error) => void,
+  userName?: string,
+  password?: string,
+  willMessage: ?Message,
+  cleanSession: boolean,
+  allowMqttVersionFallback: boolean
 }
 
 type Storage = Object & { setItem: (key: string, item: any) => void, getItem: (key: string) => any };
@@ -28,7 +34,7 @@ class ClientImplementation {
   port: ?number;
   path: ?string;
   uri: ?string;
-  clientId: ?string;
+  clientId: string;
   storage: Storage;
   webSocket: Class<WebSocket>;
 
@@ -302,11 +308,12 @@ class ClientImplementation {
     this.socket.onerror = (error) => this._on_socket_error(error);
     this.socket.onclose = () => this._on_socket_close();
 
-    if (connectOptions.keepAliveInterval) {
+    if (connectOptions.keepAliveInterval > 0) {
       //Cast this to any to deal with flow/IDE bug: https://github.com/facebook/flow/issues/2235#issuecomment-239357626
       this.sendPinger = new Pinger((this: any), connectOptions.keepAliveInterval);
       this.receivePinger = new Pinger((this: any), connectOptions.keepAliveInterval);
     }
+
     if (connectOptions.timeout) {
       this._connectTimeout = setTimeout(() => {
         this._disconnected(ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT));
@@ -468,10 +475,18 @@ class ClientImplementation {
    */
   _on_socket_open() {
     invariant(this.connectOptions, format(ERROR.INVALID_STATE, ['_on_socket_open invoked but connectOptions not set']));
-    // Create the CONNECT message object.
-    const wireMessage = new WireMessage(MESSAGE_TYPE.CONNECT, (this.connectOptions: Object));
-    wireMessage.clientId = this.clientId;
-    this._socket_send(wireMessage);
+    const { willMessage, mqttVersion, userName, password, cleanSession, keepAliveInterval } = this.connectOptions;
+
+    // Send the CONNECT message object.
+    this._socket_send(new ConnectMessage({
+      cleanSession,
+      userName,
+      password,
+      mqttVersion,
+      willMessage,
+      keepAliveInterval,
+      clientId: this.clientId
+    }));
   }
 
   /**
@@ -692,9 +707,9 @@ class ClientImplementation {
   }
 
   /** @ignore */
-  _socket_send(wireMessage: WireMessage) {
+  _socket_send(wireMessage: WireMessage | ConnectMessage) {
     const maskedCopy = { ...wireMessage };
-    if (maskedCopy.type === 1 && maskedCopy.password) {
+    if (maskedCopy.type === MESSAGE_TYPE.CONNECT && maskedCopy.password) {
       maskedCopy.password = 'REDACTED';
     }
     this._trace('Client._socket_send', maskedCopy);

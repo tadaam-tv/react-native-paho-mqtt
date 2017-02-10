@@ -11,14 +11,14 @@ import ClientImplementation from './ClientImplementation';
  */
 export default class {
   _client: ClientImplementation;
-  _keepAliveInterval: number;
+  _keepAliveIntervalMs: number;
   isReset: boolean = false;
   pingReq: ArrayBuffer = new WireMessage(MESSAGE_TYPE.PINGREQ).encode();
   timeout: ?number;
 
-  constructor(client: ClientImplementation, keepAliveIntervalMs: number) {
+  constructor(client: ClientImplementation, keepAliveIntervalSeconds: number) {
     this._client = client;
-    this._keepAliveInterval = keepAliveIntervalMs;
+    this._keepAliveIntervalMs = keepAliveIntervalSeconds * 1000;
     this.reset();
   }
 
@@ -30,7 +30,7 @@ export default class {
       this.isReset = false;
       this._client._trace('Pinger.doPing', 'send PINGREQ');
       this._client.socket && this._client.socket.send(this.pingReq);
-      this.timeout = setTimeout(() => this._doPing(), this._keepAliveInterval);
+      this.timeout = setTimeout(() => this._doPing(), this._keepAliveIntervalMs);
     }
   }
 
@@ -40,8 +40,8 @@ export default class {
       clearTimeout(this.timeout);
       this.timeout = null;
     }
-    if (this._keepAliveInterval > 0) {
-      this.timeout = setTimeout(() => this._doPing(), this._keepAliveInterval);
+    if (this._keepAliveIntervalMs > 0) {
+      this.timeout = setTimeout(() => this._doPing(), this._keepAliveIntervalMs);
     }
   }
 

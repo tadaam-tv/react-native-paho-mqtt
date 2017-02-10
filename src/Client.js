@@ -17,7 +17,7 @@
 import ClientImplementation from './ClientImplementation';
 import Message from './Message';
 import { format, validate } from './util';
-import { DEFAULT_KEEPALIVE_MS, ERROR } from './constants';
+import { DEFAULT_KEEPALIVE_SECONDS, ERROR } from './constants';
 import EventEmitter from 'events';
 
 // ------------------------------------------------------------------------
@@ -149,7 +149,7 @@ export default class Client extends EventEmitter {
    * @param {string} [userName] - Authentication username for this connection.
    * @param {string} [password] - Authentication password for this connection.
    * @param {Message} [willMessage] - sent by the server when the client disconnects abnormally.
-   * @param {number} [keepAliveInterval=60000] - ping the server every n ms to avoid being disconnected by the remote end.
+   * @param {number} [keepAliveInterval=60] - ping the server every n ms to avoid being disconnected by the remote end.
    * @param {number} [mqttVersion=4] - protocol version to use (3 or 4).
    * @param {number} [allowMqttVersionFallback=true] - if mqttVersion==4 and connecting fails, try version 3.
    * @param {boolean} [cleanSession=true] - if true the client and server persistent state is deleted on successful connect.
@@ -164,7 +164,7 @@ export default class Client extends EventEmitter {
     password,
     willMessage,
     timeout = 30000,
-    keepAliveInterval = DEFAULT_KEEPALIVE_MS,
+    keepAliveInterval = DEFAULT_KEEPALIVE_SECONDS,
     useSSL = false,
     cleanSession = true,
     mqttVersion = 4,
@@ -236,12 +236,12 @@ export default class Client extends EventEmitter {
       this._client.connect({
         userName,
         password,
-        willMessage,
+        willMessage: willMessage || null,
         timeout,
         keepAliveInterval,
         useSSL,
         cleanSession,
-        mqttVersion,
+        mqttVersion: mqttVersion === 4 ? 4 : 3,
         allowMqttVersionFallback,
         uris,
         onSuccess: resolve,
