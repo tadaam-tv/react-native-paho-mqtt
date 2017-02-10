@@ -1,48 +1,91 @@
+/* @flow */
+
 import Message from './Message';
-import { decodeMessage, format } from './util';
+import { decodeMessage, format, invariant } from './util';
 import { CONNACK_RC, ERROR, MESSAGE_TYPE } from './constants';
 import Pinger from './Pinger';
 import WireMessage from './WireMessage';
 
+type ConnectOptions = {
+  uris?: string[],
+  timeout?: number,
+  mqttVersion?: number,
+  keepAliveInterval?: number,
+  useSSL?: boolean,
+  onSuccess: ?() => void,
+  onFailure: ?(Error) => void
+}
+
+type Storage = Object & { setItem: (key: string, item: any) => void, getItem: (key: string) => any };
+
 /*
  * Internal implementation of the Websockets MQTT V3.1/V4 client.
  */
-export default class ClientImpl {
+class ClientImplementation {
 
   // Messaging Client public instance members.
-  host;
-  port;
-  path;
-  uri;
-  clientId;
-  storage;
-  webSocket;
+  host: ?string;
+  port: ?number;
+  path: ?string;
+  uri: ?string;
+  clientId: ?string;
+  storage: Storage;
+  webSocket: Class<WebSocket>;
 
   // Messaging Client private instance members.
-  socket;
+  socket: ?WebSocket;
   /* true once we have received an acknowledgement to a CONNECT packet. */
   connected = false;
   /* The largest message identifier allowed, may not be larger than 2**16 but
    * if set smaller reduces the maximum number of outbound messages allowed.
    */
   maxMessageIdentifier = 65536;
-  connectOptions;
-  hostIndex;
-  onConnectionLost;
-  onMessageDelivered;
-  onMessageArrived;
-  traceFunction;
+  connectOptions: ?ConnectOptions;
+  hostIndex: number = 0;
+  onConnectionLost: ?Function;
+  onMessageDelivered: ?Function;
+  onMessageArrived: ?Function;
+  traceFunction: ?Function;
   _msg_queue = null;
-  _connectTimeout;
+  _connectTimeout: ?number;
   /* The sendPinger monitors how long we allow before we send data to prove to the server that we are alive. */
   sendPinger = null;
   /* The receivePinger monitors how long we allow before we require evidence that the server is alive. */
   receivePinger = null;
 
-  receiveBuffer = null;
+  receiveBuffer: ?Uint8Array = null;
 
   _traceBuffer = null;
   _MAX_TRACE_ENTRIES = 100;
+
+  // Create private instance-only message queue
+  // Internal queue of messages to be sent, in sending order.
+  _msg_queue: WireMessage[] = [];
+
+  // Messages we have sent and are expecting a response for, indexed by their respective message ids.
+  _sentMessages: { [key: string]: WireMessage } = {};
+
+  // Messages we have received and acknowleged and are expecting a confirm message for
+  // indexed by their respective message ids.
+  _receivedMessages: { [key: string]: WireMessage } = {};
+
+  // Unique identifier for SEND messages, incrementing
+  // counter as messages are sent.
+  _message_identifier: number = 1;
+
+  // Used to determine the transmission sequence of stored sent messages.
+  _sequence: number = 0;
+
+  // Internal list of callbacks to be executed when messages
+  // have been successfully sent over web socket, e.g. disconnect
+  // when it doesn't have to wait for ACK, just message is dispatched.
+  _notify_msg_sent: { [key: WireMessage]: Function } = {};
+
+  // Local storagekeys are qualified with the following string.
+  // The conditional inclusion of path in the key is for backward
+  // compatibility to when the path was not configurable and assumed to
+  // be /mqtt
+  _localKey: string;
 
   /**
    *
@@ -54,7 +97,7 @@ export default class ClientImpl {
    * @param {object} [storage] object implementing getItem, setItem, removeItem in a manner compatible with localStorage
    * @param {object} [ws] object implementing the W3C websockets spec
    */
-  constructor(uri, host, port, path, clientId, storage, ws) {
+  constructor(uri: string, host: string, port: number, path: string, clientId: string, storage?: Object, ws?: Class<WebSocket>) {
     // Check dependencies are satisfied in this browser.
     if (!ws && !(window && window.WebSocket)) {
       throw new Error(format(ERROR.UNSUPPORTED, ['WebSocket']));
@@ -82,29 +125,6 @@ export default class ClientImpl {
     // be /mqtt
     this._localKey = host + ':' + port + (path !== '/mqtt' ? ':' + path : '') + ':' + clientId + ':';
 
-    // Create private instance-only message queue
-    // Internal queue of messages to be sent, in sending order.
-    this._msg_queue = [];
-
-    // Messages we have sent and are expecting a response for, indexed by their respective message ids.
-    this._sentMessages = {};
-
-    // Messages we have received and acknowleged and are expecting a confirm message for
-    // indexed by their respective message ids.
-    this._receivedMessages = {};
-
-    // Internal list of callbacks to be executed when messages
-    // have been successfully sent over web socket, e.g. disconnect
-    // when it doesn't have to wait for ACK, just message is dispatched.
-    this._notify_msg_sent = {};
-
-    // Unique identifier for SEND messages, incrementing
-    // counter as messages are sent.
-    this._message_identifier = 1;
-
-    // Used to determine the transmission sequence of stored sent messages.
-    this._sequence = 0;
-
 
     // Load the local state, if any, from the saved version, only restore state relevant to this client.
     Object.keys(this.storage).forEach(key => {
@@ -115,7 +135,7 @@ export default class ClientImpl {
   }
 
 
-  connect(connectOptions) {
+  connect(connectOptions: ConnectOptions) {
     const maskedCopy = { ...connectOptions };
     if (maskedCopy.type === 1 && maskedCopy.password) {
       maskedCopy.password = 'REDACTED';
@@ -134,13 +154,12 @@ export default class ClientImpl {
     if (connectOptions.uris) {
       this.hostIndex = 0;
       this._doConnect(connectOptions.uris[0]);
-    } else {
+    } else if (this.uri) {
       this._doConnect(this.uri);
     }
-
   }
 
-  subscribe(filter, subscribeOptions) {
+  subscribe(filter: string, subscribeOptions: { onSuccess: () => void, onFailure: (Error) => void, qos: 0 | 1 | 2, timeout: number }) {
     this._trace('Client.subscribe', filter, subscribeOptions);
 
     if (!this.connected) {
@@ -153,23 +172,19 @@ export default class ClientImpl {
 
     if (subscribeOptions.onSuccess) {
       wireMessage.onSuccess = function (grantedQos) {
-        subscribeOptions.onSuccess({ invocationContext: subscribeOptions.invocationContext, grantedQos: grantedQos });
+        subscribeOptions.onSuccess({ grantedQos: grantedQos });
       };
     }
 
     if (subscribeOptions.onFailure) {
       wireMessage.onFailure = function (errorCode) {
-        subscribeOptions.onFailure({ invocationContext: subscribeOptions.invocationContext, errorCode: errorCode });
+        subscribeOptions.onFailure(new Error('Socket error', errorCode));
       };
     }
 
     if (subscribeOptions.timeout && subscribeOptions.onFailure) {
       wireMessage.timeOut = setTimeout(() => {
-        subscribeOptions.onFailure({
-          invocationContext: subscribeOptions.invocationContext,
-          errorCode: ERROR.SUBSCRIBE_TIMEOUT.code,
-          errorMessage: format(ERROR.SUBSCRIBE_TIMEOUT)
-        });
+        subscribeOptions.onFailure(new Error(format(ERROR.SUBSCRIBE_TIMEOUT), ERROR.SUBSCRIBE_TIMEOUT.code));
       }, subscribeOptions.timeout);
     }
 
@@ -179,7 +194,7 @@ export default class ClientImpl {
   }
 
   /** @ignore */
-  unsubscribe(filter, unsubscribeOptions) {
+  unsubscribe(filter: string, unsubscribeOptions: { onSuccess: () => void, onFailure: (Error) => void, timeout: number }) {
     this._trace('Client.unsubscribe', filter, unsubscribeOptions);
 
     if (!this.connected) {
@@ -191,16 +206,12 @@ export default class ClientImpl {
 
     if (unsubscribeOptions.onSuccess) {
       wireMessage.callback = function () {
-        unsubscribeOptions.onSuccess({ invocationContext: unsubscribeOptions.invocationContext });
+        unsubscribeOptions.onSuccess();
       };
     }
     if (unsubscribeOptions.timeout) {
       wireMessage.timeOut = setTimeout(() => {
-        unsubscribeOptions.onFailure({
-          invocationContext: unsubscribeOptions.invocationContext,
-          errorCode: ERROR.UNSUBSCRIBE_TIMEOUT.code,
-          errorMessage: format(ERROR.UNSUBSCRIBE_TIMEOUT)
-        });
+        unsubscribeOptions.onFailure(new Error(format(ERROR.UNSUBSCRIBE_TIMEOUT), ERROR.UNSUBSCRIBE_TIMEOUT.code));
       }, unsubscribeOptions.timeout);
     }
 
@@ -209,7 +220,7 @@ export default class ClientImpl {
     this._schedule_message(wireMessage);
   }
 
-  send(message) {
+  send(message: Message) {
     this._trace('Client.send', message);
 
     if (!this.connected) {
@@ -247,7 +258,7 @@ export default class ClientImpl {
   getTraceLog() {
     if (this._traceBuffer !== null) {
       this._trace('Client.getTraceLog', new Date());
-      this._trace('Client.getTraceLog in flight messages', this._sentMessages.length);
+      this._trace('Client.getTraceLog in flight messages', Object.keys(this._sentMessages).length);
       Object.keys(this._sentMessages).forEach((key) => {
         this._trace('_sentMessages ', key, this._sentMessages[key]);
       });
@@ -269,15 +280,17 @@ export default class ClientImpl {
     this._traceBuffer = null;
   }
 
-  _doConnect(wsurl) {
+  _doConnect(wsurl: string) {
+    const connectOptions = this.connectOptions;
+    invariant(connectOptions, format(ERROR.INVALID_STATE, ['_doConnect called but connectOptions not set']));
     // When the socket is open, this client will send the CONNECT WireMessage using the saved parameters.
-    if (this.connectOptions.useSSL) {
+    if (connectOptions.useSSL) {
       const uriParts = wsurl.split(':');
       uriParts[0] = 'wss';
       wsurl = uriParts.join(':');
     }
     this.connected = false;
-    if (this.connectOptions.mqttVersion < 4) {
+    if (connectOptions.mqttVersion && connectOptions.mqttVersion < 4) {
       this.socket = new this.webSocket(wsurl, ['mqttv3.1']);
     } else {
       this.socket = new this.webSocket(wsurl, ['mqtt']);
@@ -289,13 +302,15 @@ export default class ClientImpl {
     this.socket.onerror = (error) => this._on_socket_error(error);
     this.socket.onclose = () => this._on_socket_close();
 
-    this.sendPinger = new Pinger(this, this.connectOptions.keepAliveInterval);
-    this.receivePinger = new Pinger(this, this.connectOptions.keepAliveInterval);
-
-    if (this.connectOptions.timeout) {
+    if (connectOptions.keepAliveInterval) {
+      //Cast this to any to deal with flow/IDE bug: https://github.com/facebook/flow/issues/2235#issuecomment-239357626
+      this.sendPinger = new Pinger((this: any), connectOptions.keepAliveInterval);
+      this.receivePinger = new Pinger((this: any), connectOptions.keepAliveInterval);
+    }
+    if (connectOptions.timeout) {
       this._connectTimeout = setTimeout(() => {
         this._disconnected(ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT));
-      }, this.connectOptions.timeout);
+      }, connectOptions.timeout);
     }
   }
 
@@ -305,7 +320,7 @@ export default class ClientImpl {
   // to be started. All other messages are queued internally
   // until this has happened. When WS connection starts, process
   // all outstanding messages.
-  _schedule_message(message) {
+  _schedule_message(message: WireMessage) {
     this._msg_queue.push(message);
     // Process outstanding messages in the queue if we have an  open socket, and have received CONNACK.
     if (this.connected) {
@@ -313,11 +328,15 @@ export default class ClientImpl {
     }
   }
 
-  store(prefix, wireMessage) {
-    const storedMessage = { type: wireMessage.type, messageIdentifier: wireMessage.messageIdentifier, version: 1 };
+  store(prefix: string, wireMessage: WireMessage) {
+    const messageIdentifier = wireMessage.messageIdentifier;
+    invariant(messageIdentifier, format(ERROR.INVALID_STATE, ['Cannot store a WireMessage with no messageIdentifier']));
+    const storedMessage: any = { type: wireMessage.type, messageIdentifier, version: 1 };
 
     switch (wireMessage.type) {
       case MESSAGE_TYPE.PUBLISH:
+        const payloadMessage = wireMessage.payloadMessage;
+        invariant(payloadMessage, format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payloadMessage']));
         if (wireMessage.pubRecReceived) {
           storedMessage.pubRecReceived = true;
         }
@@ -325,7 +344,7 @@ export default class ClientImpl {
         // Convert the payload to a hex string.
         storedMessage.payloadMessage = {};
         let hex = '';
-        const messageBytes = wireMessage.payloadMessage.payloadBytes;
+        const messageBytes = payloadMessage.payloadBytes;
         for (let i = 0; i < messageBytes.length; i++) {
           if (messageBytes[i] <= 0xF) {
             hex = hex + '0' + messageBytes[i].toString(16);
@@ -335,12 +354,12 @@ export default class ClientImpl {
         }
         storedMessage.payloadMessage.payloadHex = hex;
 
-        storedMessage.payloadMessage.qos = wireMessage.payloadMessage.qos;
-        storedMessage.payloadMessage.destinationName = wireMessage.payloadMessage.destinationName;
-        if (wireMessage.payloadMessage.duplicate) {
+        storedMessage.payloadMessage.qos = payloadMessage.qos;
+        storedMessage.payloadMessage.destinationName = payloadMessage.destinationName;
+        if (payloadMessage.duplicate) {
           storedMessage.payloadMessage.duplicate = true;
         }
-        if (wireMessage.payloadMessage.retained) {
+        if (payloadMessage.retained) {
           storedMessage.payloadMessage.retained = true;
         }
 
@@ -354,12 +373,12 @@ export default class ClientImpl {
         break;
 
       default:
-        throw Error(format(ERROR.INVALID_STORED_DATA, [prefix + this._localKey + wireMessage.messageIdentifier, storedMessage]));
+        throw Error(format(ERROR.INVALID_STORED_DATA, [prefix + this._localKey + messageIdentifier, storedMessage]));
     }
-    this.storage.setItem(prefix + this._localKey + wireMessage.messageIdentifier, JSON.stringify(storedMessage));
+    this.storage.setItem(prefix + this._localKey + messageIdentifier, JSON.stringify(storedMessage));
   }
 
-  restore(key) {
+  restore(key: string) {
     const value = this.storage.getItem(key);
     const storedMessage = JSON.parse(value);
 
@@ -396,10 +415,13 @@ export default class ClientImpl {
     }
 
     if (key.indexOf('Sent:' + this._localKey) === 0) {
+      invariant(wireMessage.payloadMessage, format(ERROR.INVALID_STATE, ['Stored WireMessage with no payloadMessage']));
       wireMessage.payloadMessage.duplicate = true;
-      this._sentMessages[wireMessage.messageIdentifier] = wireMessage;
+      invariant(wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
+      this._sentMessages[wireMessage.messageIdentifier.toString()] = wireMessage;
     } else if (key.indexOf('Received:' + this._localKey) === 0) {
-      this._receivedMessages[wireMessage.messageIdentifier] = wireMessage;
+      invariant(wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
+      this._receivedMessages[wireMessage.messageIdentifier.toString()] = wireMessage;
     }
   }
 
@@ -421,17 +443,17 @@ export default class ClientImpl {
    * messages and set an unused identifier in this message.
    * @ignore
    */
-  _requires_ack(wireMessage) {
+  _requires_ack(wireMessage: WireMessage) {
     const messageCount = Object.keys(this._sentMessages).length;
     if (messageCount > this.maxMessageIdentifier) {
       throw Error('Too many messages:' + messageCount);
     }
 
-    while (this._sentMessages[this._message_identifier] !== undefined) {
+    while (this._sentMessages[this._message_identifier.toString()] !== undefined) {
       this._message_identifier++;
     }
     wireMessage.messageIdentifier = this._message_identifier;
-    this._sentMessages[wireMessage.messageIdentifier] = wireMessage;
+    this._sentMessages[wireMessage.messageIdentifier.toString()] = wireMessage;
     if (wireMessage.type === MESSAGE_TYPE.PUBLISH) {
       this.store('Sent:', wireMessage);
     }
@@ -445,8 +467,9 @@ export default class ClientImpl {
    * @ignore
    */
   _on_socket_open() {
+    invariant(this.connectOptions, format(ERROR.INVALID_STATE, ['_on_socket_open invoked but connectOptions not set']));
     // Create the CONNECT message object.
-    const wireMessage = new WireMessage(MESSAGE_TYPE.CONNECT, this.connectOptions);
+    const wireMessage = new WireMessage(MESSAGE_TYPE.CONNECT, (this.connectOptions: Object));
     wireMessage.clientId = this.clientId;
     this._socket_send(wireMessage);
   }
@@ -455,18 +478,19 @@ export default class ClientImpl {
    * Called when the underlying websocket has received a complete packet.
    * @ignore
    */
-  _on_socket_message(event) {
+  _on_socket_message(event: { data: mixed }) {
     this._trace('Client._on_socket_message', event.data);
     const messages = this._deframeMessages(event.data);
     messages && messages.forEach(message => this._handleMessage(message));
   }
 
-  _deframeMessages(data) {
+  _deframeMessages(data: mixed): ?WireMessage[] {
     let byteArray = new Uint8Array(data);
     if (this.receiveBuffer) {
-      const newData = new Uint8Array(this.receiveBuffer.length + byteArray.length);
+      const receiveBufferLength = this.receiveBuffer.length;
+      const newData = new Uint8Array(receiveBufferLength + byteArray.length);
       newData.set(this.receiveBuffer);
-      newData.set(byteArray, this.receiveBuffer.length);
+      newData.set(byteArray, receiveBufferLength);
       byteArray = newData;
       this.receiveBuffer = null;
     }
@@ -477,7 +501,7 @@ export default class ClientImpl {
         const result = decodeMessage(byteArray, offset);
         const wireMessage = result[0];
         offset = result[1];
-        if (wireMessage !== null) {
+        if (wireMessage) {
           messages.push(wireMessage);
         } else {
           break;
@@ -492,27 +516,31 @@ export default class ClientImpl {
     }
   }
 
-  _handleMessage(wireMessage) {
+  _handleMessage(wireMessage: WireMessage) {
 
     this._trace('Client._handleMessage', wireMessage);
+    const connectOptions = this.connectOptions;
+    invariant(connectOptions, format(ERROR.INVALID_STATE, ['_handleMessage invoked but connectOptions not set']));
 
     try {
-      let sentMessage, receivedMessage;
+      let sentMessage: WireMessage, receivedMessage: WireMessage, messageIdentifier;
       switch (wireMessage.type) {
         case MESSAGE_TYPE.CONNACK:
           clearTimeout(this._connectTimeout);
 
           // If we have started using clean session then clear up the local state.
-          if (this.connectOptions.cleanSession) {
+          if (connectOptions.cleanSession) {
             Object.keys(this._sentMessages).forEach((key) => {
               sentMessage = this._sentMessages[key];
-              this.storage.removeItem('Sent:' + this._localKey + sentMessage.messageIdentifier);
+              invariant(messageIdentifier = sentMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
+              this.storage.removeItem('Sent:' + this._localKey + messageIdentifier);
             });
             this._sentMessages = {};
 
             Object.keys(this._receivedMessages).forEach((key) => {
               receivedMessage = this._receivedMessages[key];
-              this.storage.removeItem('Received:' + this._localKey + receivedMessage.messageIdentifier);
+              invariant(messageIdentifier = receivedMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
+              this.storage.removeItem('Received:' + this._localKey + messageIdentifier);
             });
             this._receivedMessages = {};
           }
@@ -520,8 +548,8 @@ export default class ClientImpl {
           if (wireMessage.returnCode === 0) {
             this.connected = true;
             // Jump to the end of the list of uris and stop looking for a good host.
-            if (this.connectOptions.uris) {
-              this.hostIndex = this.connectOptions.uris.length;
+            if (connectOptions.uris) {
+              this.hostIndex = connectOptions.uris.length;
             }
           } else {
             this._disconnected(ERROR.CONNACK_RETURNCODE.code, format(ERROR.CONNACK_RETURNCODE, [wireMessage.returnCode, CONNACK_RC[wireMessage.returnCode]]));
@@ -529,18 +557,19 @@ export default class ClientImpl {
           }
 
           // Resend messages. Sort sentMessages into the original sent order.
-          const sequencedMessages = Object.keys(this._sentMessages).map(key => this._sentMessages[key]).sort((a, b) => a.sequence - b.sequence);
+          const sequencedMessages = Object.keys(this._sentMessages).map(key => this._sentMessages[key]).sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
 
           sequencedMessages.forEach((sequencedMessage) => {
+            invariant(messageIdentifier = sequencedMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBREL WireMessage with no messageIdentifier']));
             if (sequencedMessage.type === MESSAGE_TYPE.PUBLISH && sequencedMessage.pubRecReceived) {
-              this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier: sequencedMessage.messageIdentifier }));
+              this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier }));
             } else {
               this._schedule_message(sequencedMessage);
             }
           });
 
           // Execute the connectOptions.onSuccess callback if there is one.
-          this.connectOptions.onSuccess && this.connectOptions.onSuccess();
+          connectOptions.onSuccess && connectOptions.onSuccess();
 
           // Process all queued messages now that the connection is established.
           this._process_queue();
@@ -551,11 +580,12 @@ export default class ClientImpl {
           break;
 
         case MESSAGE_TYPE.PUBACK:
-          sentMessage = this._sentMessages[wireMessage.messageIdentifier];
+          invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBACK WireMessage with no messageIdentifier']));
+          sentMessage = this._sentMessages[messageIdentifier.toString()];
           // If this is a re flow of a PUBACK after we have restarted receivedMessage will not exist.
           if (sentMessage) {
-            delete this._sentMessages[wireMessage.messageIdentifier];
-            this.storage.removeItem('Sent:' + this._localKey + wireMessage.messageIdentifier);
+            delete this._sentMessages[messageIdentifier.toString()];
+            this.storage.removeItem('Sent:' + this._localKey + messageIdentifier);
             if (this.onMessageDelivered) {
               this.onMessageDelivered(sentMessage.payloadMessage);
             }
@@ -563,44 +593,49 @@ export default class ClientImpl {
           break;
 
         case MESSAGE_TYPE.PUBREC:
-          sentMessage = this._sentMessages[wireMessage.messageIdentifier];
+          invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBREC WireMessage with no messageIdentifier']));
+          sentMessage = this._sentMessages[messageIdentifier.toString()];
           // If this is a re flow of a PUBREC after we have restarted receivedMessage will not exist.
           if (sentMessage) {
             sentMessage.pubRecReceived = true;
-            const pubRelMessage = new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier: wireMessage.messageIdentifier });
+            const pubRelMessage = new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier });
             this.store('Sent:', sentMessage);
             this._schedule_message(pubRelMessage);
           }
           break;
 
         case MESSAGE_TYPE.PUBREL:
-          receivedMessage = this._receivedMessages[wireMessage.messageIdentifier];
-          this.storage.removeItem('Received:' + this._localKey + wireMessage.messageIdentifier);
+          invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBREL WireMessage with no messageIdentifier']));
+          receivedMessage = this._receivedMessages[messageIdentifier.toString()];
+          this.storage.removeItem('Received:' + this._localKey + messageIdentifier);
           // If this is a re flow of a PUBREL after we have restarted receivedMessage will not exist.
           if (receivedMessage) {
             this._receiveMessage(receivedMessage);
-            delete this._receivedMessages[wireMessage.messageIdentifier];
+            delete this._receivedMessages[messageIdentifier.toString()];
           }
           // Always flow PubComp, we may have previously flowed PubComp but the server lost it and restarted.
-          const pubCompMessage = new WireMessage(MESSAGE_TYPE.PUBCOMP, { messageIdentifier: wireMessage.messageIdentifier });
+          const pubCompMessage = new WireMessage(MESSAGE_TYPE.PUBCOMP, { messageIdentifier });
           this._schedule_message(pubCompMessage);
           break;
 
         case MESSAGE_TYPE.PUBCOMP:
-          sentMessage = this._sentMessages[wireMessage.messageIdentifier];
-          delete this._sentMessages[wireMessage.messageIdentifier];
-          this.storage.removeItem('Sent:' + this._localKey + wireMessage.messageIdentifier);
+          invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBCOMP WireMessage with no messageIdentifier']));
+          sentMessage = this._sentMessages[messageIdentifier.toString()];
+          delete this._sentMessages[messageIdentifier.toString()];
+          this.storage.removeItem('Sent:' + this._localKey + messageIdentifier);
           if (this.onMessageDelivered) {
             this.onMessageDelivered(sentMessage.payloadMessage);
           }
           break;
 
         case MESSAGE_TYPE.SUBACK:
-          sentMessage = this._sentMessages[wireMessage.messageIdentifier];
+          invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['SUBACK WireMessage with no messageIdentifier']));
+          sentMessage = this._sentMessages[messageIdentifier.toString()];
           if (sentMessage) {
             if (sentMessage.timeOut) {
               clearTimeout(sentMessage.timeOut);
             }
+            invariant(wireMessage.returnCode instanceof Uint8Array, format(ERROR.INVALID_STATE, ['SUBACK WireMessage with invalid returnCode']));
             // This will need to be fixed when we add multiple topic support
             if (wireMessage.returnCode[0] === 0x80) {
               if (sentMessage.onFailure) {
@@ -609,12 +644,13 @@ export default class ClientImpl {
             } else if (sentMessage.onSuccess) {
               sentMessage.onSuccess(wireMessage.returnCode);
             }
-            delete this._sentMessages[wireMessage.messageIdentifier];
+            delete this._sentMessages[messageIdentifier.toString()];
           }
           break;
 
         case MESSAGE_TYPE.UNSUBACK:
-          sentMessage = this._sentMessages[wireMessage.messageIdentifier];
+          invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['UNSUBACK WireMessage with no messageIdentifier']));
+          sentMessage = this._sentMessages[messageIdentifier.toString()];
           if (sentMessage) {
             if (sentMessage.timeOut) {
               clearTimeout(sentMessage.timeOut);
@@ -622,14 +658,14 @@ export default class ClientImpl {
             if (sentMessage.callback) {
               sentMessage.callback();
             }
-            delete this._sentMessages[wireMessage.messageIdentifier];
+            delete this._sentMessages[messageIdentifier.toString()];
           }
 
           break;
 
         case MESSAGE_TYPE.PINGRESP:
           // The sendPinger or receivePinger may have sent a ping, the receivePinger has already been reset.
-          this.sendPinger.reset();
+          this.sendPinger && this.sendPinger.reset();
           break;
 
         case MESSAGE_TYPE.DISCONNECT:
@@ -646,7 +682,7 @@ export default class ClientImpl {
   }
 
   /** @ignore */
-  _on_socket_error(error) {
+  _on_socket_error(error: { data?: string }) {
     this._disconnected(ERROR.SOCKET_ERROR.code, format(ERROR.SOCKET_ERROR, [error.data || ' Unknown socket error']));
   }
 
@@ -656,43 +692,47 @@ export default class ClientImpl {
   }
 
   /** @ignore */
-  _socket_send(wireMessage) {
+  _socket_send(wireMessage: WireMessage) {
     const maskedCopy = { ...wireMessage };
     if (maskedCopy.type === 1 && maskedCopy.password) {
       maskedCopy.password = 'REDACTED';
     }
     this._trace('Client._socket_send', maskedCopy);
 
-    this.socket.send(wireMessage.encode());
+    this.socket && this.socket.send(wireMessage.encode());
     /* We have proved to the server we are alive. */
-    this.sendPinger.reset();
+    this.sendPinger && this.sendPinger.reset();
   }
 
   /** @ignore */
-  _receivePublish(wireMessage) {
-    switch (wireMessage.payloadMessage.qos) {
+  _receivePublish(wireMessage: WireMessage) {
+    const { payloadMessage, messageIdentifier } = wireMessage;
+    invariant(payloadMessage, format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payloadMessage']));
+    switch (payloadMessage.qos) {
       case 0:
         this._receiveMessage(wireMessage);
         break;
 
       case 1:
-        this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBACK, { messageIdentifier: wireMessage.messageIdentifier }));
+        invariant(messageIdentifier, format(ERROR.INVALID_STATE, ['QoS 1 WireMessage with no messageIdentifier']));
+        this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBACK, { messageIdentifier }));
         this._receiveMessage(wireMessage);
         break;
 
       case 2:
-        this._receivedMessages[wireMessage.messageIdentifier] = wireMessage;
+        invariant(messageIdentifier, format(ERROR.INVALID_STATE, ['QoS 2 WireMessage with no messageIdentifier']));
+        this._receivedMessages[messageIdentifier.toString()] = wireMessage;
         this.store('Received:', wireMessage);
-        this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBREC, { messageIdentifier: wireMessage.messageIdentifier }));
+        this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBREC, { messageIdentifier }));
         break;
 
       default:
-        throw Error('Invaild qos=' + wireMessage.payloadMessage.qos);
+        throw Error('Invaild qos=' + payloadMessage.qos);
     }
   }
 
   /** @ignore */
-  _receiveMessage(wireMessage) {
+  _receiveMessage(wireMessage: WireMessage) {
     if (this.onMessageArrived) {
       this.onMessageArrived(wireMessage.payloadMessage);
     }
@@ -705,11 +745,11 @@ export default class ClientImpl {
    * @param {string} [errorText] the error text.
    * @ignore
    */
-  _disconnected(errorCode, errorText) {
+  _disconnected(errorCode?: number, errorText?: string) {
     this._trace('Client._disconnected', errorCode, errorText);
 
-    this.sendPinger.cancel();
-    this.receivePinger.cancel();
+    this.sendPinger && this.sendPinger.cancel();
+    this.receivePinger && this.receivePinger.cancel();
     if (this._connectTimeout) {
       clearTimeout(this._connectTimeout);
     }
@@ -719,20 +759,22 @@ export default class ClientImpl {
 
     if (this.socket) {
       // Cancel all socket callbacks so that they cannot be driven again by this socket.
-      this.socket.onopen = null;
-      this.socket.onmessage = null;
-      this.socket.onerror = null;
-      this.socket.onclose = null;
+      this.socket.onopen = () => null;
+      this.socket.onmessage = () => null;
+      this.socket.onerror = () => null;
+      this.socket.onclose = () => null;
       if (this.socket.readyState === 1) {
         this.socket.close();
       }
       this.socket = null;
     }
 
-    if (this.connectOptions.uris && this.hostIndex < this.connectOptions.uris.length - 1) {
+    const connectOptions = this.connectOptions;
+
+    if (connectOptions && connectOptions.uris && this.hostIndex < connectOptions.uris.length - 1) {
       // Try the next host.
       this.hostIndex++;
-      this._doConnect(this.connectOptions.uris[this.hostIndex]);
+      this._doConnect(connectOptions.uris[this.hostIndex]);
 
     } else {
 
@@ -747,22 +789,19 @@ export default class ClientImpl {
         // Execute the connectionLostCallback if there is one, and we were connected.
         this.onConnectionLost && this.onConnectionLost({ errorCode: errorCode, errorMessage: errorText });
       } else {
+        invariant(connectOptions, format(ERROR.INVALID_STATE, ['connectOptions not set']));
         // Otherwise we never had a connection, so indicate that the connect has failed.
-        if (this.connectOptions.mqttVersion === 4 && this.connectOptions.allowMqttVersionFallback === true) {
+        if (connectOptions.mqttVersion === 4 && connectOptions.allowMqttVersionFallback === true) {
           this._trace('Failed to connect V4, dropping back to V3');
-          this.connectOptions.mqttVersion = 3;
-          if (this.connectOptions.uris) {
+          connectOptions.mqttVersion = 3;
+          if (connectOptions.uris) {
             this.hostIndex = 0;
-            this._doConnect(this.connectOptions.uris[0]);
-          } else {
+            this._doConnect(connectOptions.uris[0]);
+          } else if (this.uri) {
             this._doConnect(this.uri);
           }
-        } else if (this.connectOptions.onFailure) {
-          this.connectOptions.onFailure({
-            invocationContext: this.connectOptions.invocationContext,
-            errorCode: errorCode,
-            errorMessage: errorText
-          });
+        } else if (connectOptions.onFailure) {
+          connectOptions.onFailure(new Error(errorText, errorCode));
         }
       }
     }
@@ -771,13 +810,14 @@ export default class ClientImpl {
   /** @ignore */
   _trace() {
     // Pass trace message back to client's callback function
-    if (this.traceFunction) {
+    const traceFunction = this.traceFunction;
+    if (traceFunction) {
       for (let i in arguments) {
         if (arguments.hasOwnProperty(i) && typeof arguments[i] !== 'undefined') {
           arguments[i] = JSON.stringify(arguments[i]);
         }
       }
-      this.traceFunction({ severity: 'Debug', message: Array.prototype.slice.call(arguments).join('') });
+      traceFunction({ severity: 'Debug', message: Array.prototype.slice.call(arguments).join('') });
     }
 
     //buffer style trace
@@ -797,3 +837,5 @@ export default class ClientImpl {
     }
   }
 }
+
+export default ClientImplementation;

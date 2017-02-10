@@ -88,11 +88,11 @@ export default class {
     }
   }
 
-  get qos(): 0|1|2 {
+  get qos(): 0 | 1 | 2 {
     return this._qos;
   }
 
-  set qos(newQos: 0|1|2) {
+  set qos(newQos: 0 | 1 | 2) {
     if (newQos === 0 || newQos === 1 || newQos === 2) {
       this._qos = newQos;
     } else {

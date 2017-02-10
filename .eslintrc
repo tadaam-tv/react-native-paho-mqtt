@@ -20,6 +20,7 @@
     "alert": false,
     "cancelAnimationFrame": false,
     "cancelIdleCallback": false,
+    "Class": true,
     "clearImmediate": true,
     "clearInterval": false,
     "clearTimeout": false,
@@ -48,6 +49,7 @@
     "test": true,
     "window": false,
     "XMLHttpRequest": false,
+    "WebSocket": true,
     "pit": false,
 
     // Flow global types.

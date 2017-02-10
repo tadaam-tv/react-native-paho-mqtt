@@ -4,6 +4,12 @@ import { ERROR, MESSAGE_TYPE } from './constants';
 import WireMessage from './WireMessage';
 import Message from './Message';
 
+export function invariant(condition: boolean, message: string) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
 /**
  * Format an error message text.
  *
@@ -11,11 +17,17 @@ import Message from './Message';
  * @param substitutions [array] substituted into the text.
  * @return the text with the substitutions made.
  */
-export function format(error: { text: string }, substitutions: (string | number)[]) {
+export function format(error: { text: string }, substitutions?: (?(string | number | Uint8Array))[]) {
   let text = error.text;
   if (substitutions) {
     let field;
     substitutions.forEach((substitution, i) => {
+      if (substitution === null) {
+        substitution = 'null';
+      }
+      if (substitution === undefined) {
+        substitution = 'undefined';
+      }
       field = '{' + i + '}';
       text = text.replace(field, substitution.toString());
     });
@@ -149,7 +161,7 @@ export function stringToUTF8(input: string, output: Uint8Array, start: number): 
   return output;
 }
 
-export function parseUTF8(input: Uint8Array, offset: number, length: number):string {
+export function parseUTF8(input: Uint8Array, offset: number, length: number): string {
   let output = '';
   let utf16;
   let pos = offset;
@@ -240,7 +252,7 @@ export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage, nu
       break;
 
     case MESSAGE_TYPE.PUBLISH:
-      const qos:any = (messageInfo >> 1) & 0x03;
+      const qos: any = (messageInfo >> 1) & 0x03;
 
       const len = readUint16(input, pos);
       pos += 2;

@@ -1,6 +1,6 @@
-import { Client } from '../../';
+import { Client } from '../';
 import { host, mqttVersion, path, port, startBroker, stopBroker, storage, webSocket } from './.support';
-import Message from '../Message';
+import Message from '../src/Message';
 
 const client = new Client({
   host,

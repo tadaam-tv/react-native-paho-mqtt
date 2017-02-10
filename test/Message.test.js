@@ -1,4 +1,4 @@
-import Message from '../Message';
+import Message from '../src/Message';
 
 test('check message properties.', function () {
   const strMsg = 'test Msg';

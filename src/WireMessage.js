@@ -38,10 +38,16 @@ export default class {
   willMessage: ?Message = null;
   keepAliveInterval: ?number;
   topics: ?string[];
-  requestedQos: ?(0|1|2)[];
+  requestedQos: ?(0 | 1 | 2)[];
   clientId: ?string;
   sessionPresent: ?boolean;
-  returnCode: ?(number|Uint8Array);
+  returnCode: ?(number | Uint8Array);
+  onSuccess: ?Function;
+  onFailure: ?Function;
+  timeOut: ?number;
+  pubRecReceived: ?boolean;
+  callback: ?Function;
+  sequence: ?number;
 
   constructor(type: number, options: {
     messageIdentifier?: number;
@@ -53,17 +59,17 @@ export default class {
     willMessage?: Message;
     keepAliveInterval?: number;
     topics?: string[];
-    requestedQos?: (0|1|2)[];
+    requestedQos?: (0 | 1 | 2)[];
     clientId?: string
   } = {}) {
     this.type = type;
-    const self:Object = this;
+    const self: Object = this;
     Object.keys(options).forEach((name) => {
       self[name] = options[name];
     });
   }
 
-  encode() {
+  encode(): ArrayBuffer {
     // Compute the first byte of the fixed header
     let first = ((this.type & 0x0f) << 4);
 

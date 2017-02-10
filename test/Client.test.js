@@ -1,4 +1,4 @@
-import { Client } from '../..';
+import { Client } from '../';
 import { host, path, port } from './.support';
 
 import { w3cwebsocket as webSocket } from 'websocket';

@@ -13,16 +13,38 @@
  * Contributors:
  *    Andrew Banks - initial API and implementation and initial documentation
  *******************************************************************************/
-
-import ClientImpl from './ClientImpl';
+/* @flow */
+import ClientImplementation from './ClientImplementation';
 import Message from './Message';
 import { format, validate } from './util';
 import { DEFAULT_KEEPALIVE_MS, ERROR } from './constants';
-import { EventEmitter } from 'events';
+import EventEmitter from 'events';
 
 // ------------------------------------------------------------------------
 // Public API.
 // ------------------------------------------------------------------------
+
+type ConstructorOptions = {
+  host: ?string,
+  port: ?number,
+  path: string,
+  clientId: string,
+  storage: any,
+  webSocket?: Class<WebSocket>
+}
+
+type ConnectOptions = {
+  userName?: string,
+  password?: string,
+  willMessage?: Message,
+  timeout?: number,
+  keepAliveInterval: number,
+  useSSL: boolean,
+  cleanSession: boolean,
+  mqttVersion: number,
+  allowMqttVersionFallback: boolean,
+  uris?: string[]
+}
 
 /**
  * The JavaScript application communicates to the server using a {@link Client} object.
@@ -38,6 +60,10 @@ import { EventEmitter } from 'events';
  * @fires Client#messageDelivered
  */
 export default class Client extends EventEmitter {
+
+
+  _client: ClientImplementation;
+
   /**
    *
    * @param {string} [host] - the address of the messaging server, as a fully qualified WebSocket URI, as a DNS name or dotted decimal IP address.
@@ -47,7 +73,7 @@ export default class Client extends EventEmitter {
    * @param {object} [storage] - object implementing getItem, setItem, removeItem in a manner compatible with localStorage
    * @param {object} [webSocket] - object implementing the W3C websocket spec
    */
-  constructor({ host, port, path = '/mqtt', clientId, storage, webSocket }) {
+  constructor({ host, port, path = '/mqtt', clientId, storage, webSocket }: ConstructorOptions) {
     super();
     let uri;
 
@@ -93,7 +119,7 @@ export default class Client extends EventEmitter {
       throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, 'clientId']));
     }
 
-    this._client = new ClientImpl(uri, host, port, path, clientId, storage, webSocket);
+    this._client = new ClientImplementation(uri, host, port, path, clientId, storage, webSocket);
 
     /**
      * @event Client#messageDelivered
@@ -144,7 +170,7 @@ export default class Client extends EventEmitter {
     mqttVersion = 4,
     allowMqttVersionFallback = true,
     uris
-  } = {}) {
+  }: ConnectOptions = {}) {
     validate({
       userName,
       password,
@@ -186,7 +212,7 @@ export default class Client extends EventEmitter {
         }
         // The will message must have a payload that can be represented as a string.
         // Cause the willMessage to throw an exception if this is not the case.
-        willMessage.stringPayload;
+        willMessage.payloadString;
 
         if (typeof willMessage.destinationName === 'undefined') {
           throw new Error(format(ERROR.INVALID_TYPE, [typeof willMessage.destinationName, 'willMessage.destinationName']));
@@ -195,7 +221,7 @@ export default class Client extends EventEmitter {
 
       if (uris) {
         if (!Array.isArray(uris) || uris.length < 1) {
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [uris, 'uris']));
+          throw new Error(format(ERROR.INVALID_ARGUMENT, [uris.toString(), 'uris']));
         }
 
         // Validate that all URIs
@@ -232,7 +258,7 @@ export default class Client extends EventEmitter {
    * @param {number} [timeout=30000] - milliseconds after which the call will fail
    * @returns {Promise}
    */
-  subscribe(filter, { qos = 0, timeout = 30000 } = {}) {
+  subscribe(filter: string, { qos = 0, timeout = 30000 }:{ qos: 0 | 1 | 2, timeout: number } = {}) {
     return new Promise((resolve, reject) => {
       if (typeof filter !== 'string') {
         throw new Error('Invalid argument:' + filter);
@@ -260,7 +286,7 @@ export default class Client extends EventEmitter {
    * @param {number} [timeout=30000] MS after which the promise will be rejected
    * @returns {Promise}
    */
-  unsubscribe(filter, { timeout = 30000 } = {}) {
+  unsubscribe(filter: string, { timeout = 30000 }:{ timeout: number } = {}) {
     return new Promise((resolve, reject) => {
       if (typeof filter !== 'string') {
         throw new Error('Invalid argument:' + filter);
@@ -299,7 +325,7 @@ export default class Client extends EventEmitter {
    *                     and the subscrption was made after the message has been published.
    * @throws {InvalidState} if the client is not connected.
    */
-  send(topic, payload, qos, retained) {
+  send(topic: string | Message, payload: string, qos: 0 | 1 | 2, retained: boolean) {
     let message;
 
     if (arguments.length === 0) {
@@ -307,7 +333,7 @@ export default class Client extends EventEmitter {
 
     } else if (arguments.length === 1) {
 
-      if (!(topic instanceof Message) && (typeof topic !== 'string')) {
+      if (!(topic instanceof Message)) {
         throw new Error('Invalid argument:' + typeof topic);
       }
 
@@ -317,7 +343,7 @@ export default class Client extends EventEmitter {
       }
       this._client.send(message);
 
-    } else {
+    } else if (typeof topic === 'string') {
       //parameter checking in Message object
       message = new Message(payload);
       message.destinationName = topic;
@@ -385,27 +411,27 @@ export default class Client extends EventEmitter {
     return this._client.connected;
   }
 
-  get host() {
+  get host(): ?string {
     return this._client.host;
   }
 
-  get port() {
+  get port(): ?number {
     return this._client.port;
   }
 
-  get path() {
+  get path(): ?string {
     return this._client.path;
   }
 
-  get clientId() {
+  get clientId(): ?string {
     return this._client.clientId;
   }
 
-  get trace() {
+  get trace(): ?Function {
     return this._client.traceFunction;
   }
 
-  set trace(trace) {
+  set trace(trace: Function) {
     if (typeof trace === 'function') {
       this._client.traceFunction = trace;
     } else {

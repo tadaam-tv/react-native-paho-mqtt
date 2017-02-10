@@ -41,6 +41,6 @@
       "js",
       "json"
     ],
-    "testRegex": "/src/test/.*\\.test\\.js$"
+    "testRegex": "/test/.*\\.test\\.js$"
   }
 }
