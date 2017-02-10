@@ -1,20 +1,16 @@
 import { Client } from '../';
-import { host, mqttVersion, path, port, startBroker, stopBroker, storage, webSocket } from './.support';
+import { uri, mqttVersion, startBroker, stopBroker, storage, webSocket } from './.support';
 import Message from '../src/Message';
 
 const client = new Client({
-  host,
-  port,
-  path,
+  uri,
   clientId: 'testclientid',
   webSocket,
   storage,
 });
 
 test('client is set up correctly', function () {
-  expect(client.host).toBe(host);
-  expect(client.port).toBe(port);
-  expect(client.path).toBe(path);
+  expect(client.uri).toBe(uri);
 });
 
 describe('Integration tests', () => {

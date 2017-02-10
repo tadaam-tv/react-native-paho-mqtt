@@ -25,9 +25,7 @@ import EventEmitter from 'events';
 // ------------------------------------------------------------------------
 
 type ConstructorOptions = {
-  host: ?string,
-  port: ?number,
-  path: string,
+  uri: string,
   clientId: string,
   storage: any,
   webSocket?: Class<WebSocket>
@@ -51,7 +49,7 @@ type ConnectOptions = {
  *
  * Most applications will create just one Client object and then call its connect() method,
  * however applications can create more than one Client object if they wish.
- * In this case the combination of host, port and clientId attributes must be different for each Client object.
+ * In this case the combination of uri and clientId attributes must be different for each Client object.
  *
  * @name Client
  *
@@ -66,45 +64,16 @@ export default class Client extends EventEmitter {
 
   /**
    *
-   * @param {string} [host] - the address of the messaging server, as a fully qualified WebSocket URI, as a DNS name or dotted decimal IP address.
-   * @param {number} [port] - the port number to connect to - only required if host is not a URI
-   * @param {string} [path='/mqtt'] - the path on the host to connect to - only used if host is not a URI
+   * @param {string} [uri] - the address of the messaging server, as a fully qualified WebSocket URI
    * @param {string} [clientId] - the Messaging client identifier, between 1 and 23 characters in length.
    * @param {object} [storage] - object implementing getItem, setItem, removeItem in a manner compatible with localStorage
    * @param {object} [webSocket] - object implementing the W3C websocket spec
    */
-  constructor({ host, port, path = '/mqtt', clientId, storage, webSocket }: ConstructorOptions) {
+  constructor({ uri, clientId, storage, webSocket }: ConstructorOptions) {
     super();
-    let uri;
 
-    if (typeof host !== 'string') {
-      throw new Error(format(ERROR.INVALID_TYPE, [typeof host, 'host']));
-    }
-
-    if (!port) {
-      // host: must be full ws:// uri
-      uri = host;
-      let match = uri.match(/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/);
-      if (match) {
-        host = match[4] || match[2];
-        port = parseInt(match[7], 10);
-        path = match[8];
-      } else {
-        throw new Error(format(ERROR.INVALID_ARGUMENT, [host, 'host']));
-      }
-    } else {
-      if (!path) {
-        path = '/mqtt';
-      }
-      if (typeof port !== 'number' || port < 0) {
-        throw new Error(format(ERROR.INVALID_TYPE, [typeof port, 'port']));
-      }
-      if (typeof path !== 'string') {
-        throw new Error(format(ERROR.INVALID_TYPE, [typeof path, 'path']));
-      }
-
-      const ipv6AddSBracket = (host.indexOf(':') !== -1 && host.slice(0, 1) !== '[' && host.slice(-1) !== ']');
-      uri = 'ws://' + (ipv6AddSBracket ? '[' + host + ']' : host) + ':' + port + path;
+    if (!/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/.test(uri)) {
+      throw new Error(format(ERROR.INVALID_ARGUMENT, [typeof uri, 'uri']));
     }
 
     let clientIdLength = 0;
@@ -119,7 +88,7 @@ export default class Client extends EventEmitter {
       throw new Error(format(ERROR.INVALID_ARGUMENT, [clientId, 'clientId']));
     }
 
-    this._client = new ClientImplementation(uri, host, port, path, clientId, storage, webSocket);
+    this._client = new ClientImplementation(uri, clientId, storage, webSocket);
 
     /**
      * @event Client#messageDelivered
@@ -153,11 +122,6 @@ export default class Client extends EventEmitter {
    * @param {number} [mqttVersion=4] - protocol version to use (3 or 4).
    * @param {number} [allowMqttVersionFallback=true] - if mqttVersion==4 and connecting fails, try version 3.
    * @param {boolean} [cleanSession=true] - if true the client and server persistent state is deleted on successful connect.
-   * @param {boolean} [useSSL=false] - use an SSL Websocket connection if true.
-   * @param {string[]} [uris] If present this contains either a set of fully qualified
-   *  WebSocket URIs (ws://example.com:1883/mqtt), that are tried in order in place
-   *  of the constructor's configuration. The hosts are tried one at at time in order until
-   *  one of them succeeds.
    */
   connect({
     userName,
@@ -165,11 +129,9 @@ export default class Client extends EventEmitter {
     willMessage,
     timeout = 30000,
     keepAliveInterval = DEFAULT_KEEPALIVE_SECONDS,
-    useSSL = false,
     cleanSession = true,
     mqttVersion = 4,
-    allowMqttVersionFallback = true,
-    uris
+    allowMqttVersionFallback = true
   }: ConnectOptions = {}) {
     validate({
       userName,
@@ -177,11 +139,9 @@ export default class Client extends EventEmitter {
       willMessage,
       timeout,
       keepAliveInterval,
-      useSSL,
       cleanSession,
       mqttVersion,
-      allowMqttVersionFallback,
-      uris
+      allowMqttVersionFallback
     }, {
       timeout: 'number',
       userName: '?string',
@@ -189,10 +149,8 @@ export default class Client extends EventEmitter {
       willMessage: '?object',
       keepAliveInterval: 'number',
       cleanSession: 'boolean',
-      useSSL: 'boolean',
       mqttVersion: 'number',
-      allowMqttVersionFallback: 'boolean',
-      uris: '?object'
+      allowMqttVersionFallback: 'boolean'
     });
 
     return new Promise((resolve, reject) => {
@@ -219,31 +177,15 @@ export default class Client extends EventEmitter {
         }
       }
 
-      if (uris) {
-        if (!Array.isArray(uris) || uris.length < 1) {
-          throw new Error(format(ERROR.INVALID_ARGUMENT, [uris.toString(), 'uris']));
-        }
-
-        // Validate that all URIs
-        uris.forEach((uri, i) => {
-          if (!/^(wss?):\/\/((\[(.+)\])|([^\/]+?))(:(\d+))?(\/.*)$/.test(uri)) {
-            throw new Error(format(ERROR.INVALID_ARGUMENT, [uri, 'uris[' + i + ']']));
-          }
-        });
-      }
-
-
       this._client.connect({
         userName,
         password,
         willMessage: willMessage || null,
         timeout,
         keepAliveInterval,
-        useSSL,
         cleanSession,
         mqttVersion: mqttVersion === 4 ? 4 : 3,
         allowMqttVersionFallback,
-        uris,
         onSuccess: resolve,
         onFailure: reject
       });
@@ -411,16 +353,8 @@ export default class Client extends EventEmitter {
     return this._client.connected;
   }
 
-  get host(): ?string {
-    return this._client.host;
-  }
-
-  get port(): ?number {
-    return this._client.port;
-  }
-
-  get path(): ?string {
-    return this._client.path;
+  get uri(): string {
+    return this._client.uri;
   }
 
   get clientId(): ?string {

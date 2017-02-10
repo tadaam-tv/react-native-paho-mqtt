@@ -8,11 +8,9 @@ import WireMessage from './WireMessage';
 import ConnectMessage from './ConnectMessage';
 
 type ConnectOptions = {
-  uris?: string[],
   timeout?: number,
   mqttVersion: 3 | 4,
   keepAliveInterval: number,
-  useSSL?: boolean,
   onSuccess: ?() => void,
   onFailure: ?(Error) => void,
   userName?: string,
@@ -30,10 +28,7 @@ type Storage = Object & { setItem: (key: string, item: any) => void, getItem: (k
 class ClientImplementation {
 
   // Messaging Client public instance members.
-  host: ?string;
-  port: ?number;
-  path: ?string;
-  uri: ?string;
+  uri: string;
   clientId: string;
   storage: Storage;
   webSocket: Class<WebSocket>;
@@ -47,7 +42,6 @@ class ClientImplementation {
    */
   maxMessageIdentifier = 65536;
   connectOptions: ?ConnectOptions;
-  hostIndex: number = 0;
   onConnectionLost: ?Function;
   onMessageDelivered: ?Function;
   onMessageArrived: ?Function;
@@ -96,14 +90,11 @@ class ClientImplementation {
   /**
    *
    * @param {string} [uri] the FQDN (with protocol and path suffix) of the host
-   * @param {string} [host] the DNS nameof the webSocket host.
-   * @param {number} [port] the port number for that host.
-   * @param {string} [path] the path suffix for the host.
    * @param {string} [clientId] the MQ client identifier.
    * @param {object} [storage] object implementing getItem, setItem, removeItem in a manner compatible with localStorage
    * @param {object} [ws] object implementing the W3C websockets spec
    */
-  constructor(uri: string, host: string, port: number, path: string, clientId: string, storage?: Object, ws?: Class<WebSocket>) {
+  constructor(uri: string, clientId: string, storage?: Object, ws?: Class<WebSocket>) {
     // Check dependencies are satisfied in this browser.
     if (!ws && !(window && window.WebSocket)) {
       throw new Error(format(ERROR.UNSUPPORTED, ['WebSocket']));
@@ -115,11 +106,8 @@ class ClientImplementation {
     if (!(window && window.ArrayBuffer)) {
       throw new Error(format(ERROR.UNSUPPORTED, ['ArrayBuffer']));
     }
-    this._trace('Client', uri, host, port, path, clientId);
+    this._trace('Client', uri, clientId);
 
-    this.host = host;
-    this.port = port;
-    this.path = path;
     this.uri = uri;
     this.clientId = clientId;
     this.storage = storage || window.localStorage;
@@ -129,7 +117,7 @@ class ClientImplementation {
     // The conditional inclusion of path in the key is for backward
     // compatibility to when the path was not configurable and assumed to
     // be /mqtt
-    this._localKey = host + ':' + port + (path !== '/mqtt' ? ':' + path : '') + ':' + clientId + ':';
+    this._localKey = uri + ':' + clientId + ':';
 
 
     // Load the local state, if any, from the saved version, only restore state relevant to this client.
@@ -157,12 +145,7 @@ class ClientImplementation {
 
     this.connectOptions = connectOptions;
 
-    if (connectOptions.uris) {
-      this.hostIndex = 0;
-      this._doConnect(connectOptions.uris[0]);
-    } else if (this.uri) {
-      this._doConnect(this.uri);
-    }
+    this._doConnect(this.uri);
   }
 
   subscribe(filter: string, subscribeOptions: { onSuccess: () => void, onFailure: (Error) => void, qos: 0 | 1 | 2, timeout: number }) {
@@ -290,11 +273,6 @@ class ClientImplementation {
     const connectOptions = this.connectOptions;
     invariant(connectOptions, format(ERROR.INVALID_STATE, ['_doConnect called but connectOptions not set']));
     // When the socket is open, this client will send the CONNECT WireMessage using the saved parameters.
-    if (connectOptions.useSSL) {
-      const uriParts = wsurl.split(':');
-      uriParts[0] = 'wss';
-      wsurl = uriParts.join(':');
-    }
     this.connected = false;
     if (connectOptions.mqttVersion && connectOptions.mqttVersion < 4) {
       this.socket = new this.webSocket(wsurl, ['mqttv3.1']);
@@ -562,10 +540,6 @@ class ClientImplementation {
           // Client connected and ready for business.
           if (wireMessage.returnCode === 0) {
             this.connected = true;
-            // Jump to the end of the list of uris and stop looking for a good host.
-            if (connectOptions.uris) {
-              this.hostIndex = connectOptions.uris.length;
-            }
           } else {
             this._disconnected(ERROR.CONNACK_RETURNCODE.code, format(ERROR.CONNACK_RETURNCODE, [wireMessage.returnCode, CONNACK_RC[wireMessage.returnCode]]));
             break;
@@ -786,12 +760,7 @@ class ClientImplementation {
 
     const connectOptions = this.connectOptions;
 
-    if (connectOptions && connectOptions.uris && this.hostIndex < connectOptions.uris.length - 1) {
-      // Try the next host.
-      this.hostIndex++;
-      this._doConnect(connectOptions.uris[this.hostIndex]);
 
-    } else {
 
       if (errorCode === undefined) {
         errorCode = ERROR.OK.code;
@@ -809,16 +778,12 @@ class ClientImplementation {
         if (connectOptions.mqttVersion === 4 && connectOptions.allowMqttVersionFallback === true) {
           this._trace('Failed to connect V4, dropping back to V3');
           connectOptions.mqttVersion = 3;
-          if (connectOptions.uris) {
-            this.hostIndex = 0;
-            this._doConnect(connectOptions.uris[0]);
-          } else if (this.uri) {
+          if (this.uri) {
             this._doConnect(this.uri);
           }
         } else if (connectOptions.onFailure) {
           connectOptions.onFailure(new Error(errorText, errorCode));
         }
-      }
     }
   }
 

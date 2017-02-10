@@ -33,9 +33,7 @@ export const stopBroker = () => {
   return Promise.resolve();
 };
 
-export const host = 'localhost';
-export const port = PORT;
-export const path = '/';
+export const uri = 'ws://localhost:'+PORT+'/';
 export const webSocket = require('websocket').w3cwebsocket;
 export const storage = require('node-localstorage');
 export const mqttVersion = 3;
