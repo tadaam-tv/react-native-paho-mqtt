@@ -1,6 +1,6 @@
 /* @flow */
 
-import { encodeMBI, lengthOfUTF8, writeString, writeUint16 } from './util';
+import { encodeMultiByteInteger, lengthOfUTF8, writeString, writeUint16 } from './util';
 import { MESSAGE_TYPE, MqttProtoIdentifierv3, MqttProtoIdentifierv4 } from './constants';
 import Message from './Message';
 
@@ -64,7 +64,7 @@ export default class {
 
     // Now we can allocate a buffer for the message
 
-    const mbi = encodeMBI(remLength);  // Convert the length to MQTT MBI format
+    const mbi = encodeMultiByteInteger(remLength);  // Convert the length to MQTT MBI format
     let pos = mbi.length + 1;        // Offset of start of variable header
     const buffer = new ArrayBuffer(remLength + pos);
     const byteStream = new Uint8Array(buffer);    // view it as a sequence of bytes

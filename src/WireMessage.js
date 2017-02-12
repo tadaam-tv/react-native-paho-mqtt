@@ -1,8 +1,7 @@
 /* @flow */
 
-import { encodeMBI, format, lengthOfUTF8, writeString, writeUint16 } from './util';
+import { encodeMultiByteInteger, format, lengthOfUTF8, writeString, writeUint16 } from './util';
 import { ERROR, MESSAGE_TYPE } from './constants';
-import Message from './Message';
 
 /**
  * Construct an MQTT wire protocol message.
@@ -12,7 +11,6 @@ import Message from './Message';
  * Optional properties
  *
  * messageIdentifier: message ID in the range [0..65535]
- * payloadMessage:  Application Message - PUBLISH only
  * topics:      array of strings (SUBSCRIBE, UNSUBSCRIBE)
  * requestQoS:    array of QoS values [0..2]
  *
@@ -22,22 +20,25 @@ import Message from './Message';
 export default class {
   type: number;
   messageIdentifier: ?number = null;
-  payloadMessage: ?Message = null;
+  clientId: ?string;
+
+  //CONNACK only
+  returnCode: ?(number | Uint8Array);
+  sessionPresent: ?boolean;
+  onDispatched: ?() => void;
+
+  //PUB/SUB flows only
+  subAckReceived: ?(grantedQos: number) => void;
+  onFailure: ?(Error) => void;
+  timeOut: ?number;
+  unSubAckReceived: ?() => void;
   topics: ?string[];
   requestedQos: ?(0 | 1 | 2)[];
-  clientId: ?string;
-  sessionPresent: ?boolean;
-  returnCode: ?(number | Uint8Array);
-  onSuccess: ?Function;
-  onFailure: ?Function;
-  timeOut: ?number;
-  pubRecReceived: ?boolean;
-  callback: ?Function;
+
   sequence: ?number;
 
   constructor(type: number, options: {
     messageIdentifier?: number;
-    payloadMessage?: Message;
     topics?: string[];
     requestedQos?: (0 | 1 | 2)[];
     clientId?: string
@@ -60,8 +61,6 @@ export default class {
 
     let remLength = 0;
     const topicStrLength = [];
-    let destinationNameLength = 0;
-    let payloadBytes: ?Uint8Array;
 
     // if the message contains a messageIdentifier then we need two bytes for that
     if (this.messageIdentifier) {
@@ -101,23 +100,6 @@ export default class {
         first |= 0x02; // Qos = 1;
         break;
 
-      case MESSAGE_TYPE.PUBLISH:
-        if (!this.payloadMessage) {
-          throw new Error(format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payload']));
-        }
-        if (this.payloadMessage.duplicate) {
-          first |= 0x08;
-        }
-        first = first |= (this.payloadMessage.qos << 1);
-        if (this.payloadMessage.retained) {
-          first |= 0x01;
-        }
-        payloadBytes = this.payloadMessage.payloadBytes;
-        destinationNameLength = lengthOfUTF8(this.payloadMessage.destinationName);
-        remLength += destinationNameLength + 2;
-        remLength += payloadBytes.byteLength;
-        break;
-
       case MESSAGE_TYPE.DISCONNECT:
         break;
 
@@ -126,7 +108,7 @@ export default class {
 
     // Now we can allocate a buffer for the message
 
-    const mbi = encodeMBI(remLength);  // Convert the length to MQTT MBI format
+    const mbi = encodeMultiByteInteger(remLength);  // Convert the length to MQTT MBI format
     let pos = mbi.length + 1;        // Offset of start of variable header
     const buffer = new ArrayBuffer(remLength + pos);
     const byteStream = new Uint8Array(buffer);    // view it as a sequence of bytes
@@ -135,25 +117,12 @@ export default class {
     byteStream[0] = first;
     byteStream.set(mbi, 1);
 
-    // If this is a PUBLISH then the variable header starts with a topic
-    if (this.type === MESSAGE_TYPE.PUBLISH) {
-      if (!this.payloadMessage) {
-        throw new Error(format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payload']));
-      }
-      pos = writeString(this.payloadMessage.destinationName, destinationNameLength, byteStream, pos);
-    }
-
     // Output the messageIdentifier - if there is one
     if (this.messageIdentifier) {
       pos = writeUint16(this.messageIdentifier, byteStream, pos);
     }
 
     switch (this.type) {
-      case MESSAGE_TYPE.PUBLISH:
-        // PUBLISH has a text or binary payload, if text do not add a 2 byte length field, just the UTF characters.
-        payloadBytes && byteStream.set(payloadBytes, pos);
-        break;
-
       case MESSAGE_TYPE.SUBSCRIBE:
         if (!this.topics) {
           throw new Error(format(ERROR.INVALID_STATE, ['SUBSCRIBE WireMessage with no topics']));

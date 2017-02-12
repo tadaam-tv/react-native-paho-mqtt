@@ -2,6 +2,7 @@
 
 import { ERROR, MESSAGE_TYPE } from './constants';
 import WireMessage from './WireMessage';
+import PublishMessage from './PublishMessage';
 import Message from './Message';
 
 export function invariant(condition: boolean, message: string) {
@@ -82,7 +83,7 @@ export function readUint16(buffer: Uint8Array, offset: number): number {
  * Encodes an MQTT Multi-Byte Integer
  * @private
  */
-export function encodeMBI(number: number) {
+export function encodeMultiByteInteger(number: number) {
   let output = new Array(1);
   let numBytes = 0;
 
@@ -213,7 +214,7 @@ export function parseUTF8(input: Uint8Array, offset: number, length: number): st
   return output;
 }
 
-export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage, number] {
+export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage | PublishMessage, number] {
   const startingPos = pos;
   let first = input[pos];
   const type = first >> 4;
@@ -240,9 +241,10 @@ export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage, nu
     return [null, startingPos];
   }
 
-  const wireMessage = new WireMessage(type);
+  let wireMessage;
   switch (type) {
     case MESSAGE_TYPE.CONNACK:
+      wireMessage = new WireMessage(type);
       const connectAcknowledgeFlags = input[pos++];
       const sessionPresent = connectAcknowledgeFlags & 0x01;
       if (sessionPresent) {
@@ -258,9 +260,10 @@ export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage, nu
       pos += 2;
       const topicName = parseUTF8(input, pos, len);
       pos += len;
+      let messageIdentifier;
       // If QoS 1 or 2 there will be a messageIdentifier
       if (qos > 0) {
-        wireMessage.messageIdentifier = readUint16(input, pos);
+        messageIdentifier = readUint16(input, pos);
         pos += 2;
       }
 
@@ -273,18 +276,19 @@ export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage, nu
       }
       message.qos = qos;
       message.destinationName = topicName;
-      wireMessage.payloadMessage = message;
-      break;
+      return [new PublishMessage(message, messageIdentifier), endPos];
 
     case  MESSAGE_TYPE.PUBACK:
     case  MESSAGE_TYPE.PUBREC:
     case  MESSAGE_TYPE.PUBREL:
     case  MESSAGE_TYPE.PUBCOMP:
     case  MESSAGE_TYPE.UNSUBACK:
+      wireMessage = new WireMessage(type);
       wireMessage.messageIdentifier = readUint16(input, pos);
       break;
 
     case  MESSAGE_TYPE.SUBACK:
+      wireMessage = new WireMessage(type);
       wireMessage.messageIdentifier = readUint16(input, pos);
       pos += 2;
       wireMessage.returnCode = input.subarray(pos, endPos);

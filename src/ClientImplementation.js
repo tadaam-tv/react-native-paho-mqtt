@@ -5,6 +5,7 @@ import { decodeMessage, format, invariant } from './util';
 import { CONNACK_RC, ERROR, MESSAGE_TYPE } from './constants';
 import Pinger from './Pinger';
 import WireMessage from './WireMessage';
+import PublishMessage from './PublishMessage';
 import ConnectMessage from './ConnectMessage';
 
 type ConnectOptions = {
@@ -26,20 +27,18 @@ type Storage = Object & { setItem: (key: string, item: any) => void, getItem: (k
  */
 class ClientImplementation {
 
-  // Messaging Client public instance members.
   uri: string;
   clientId: string;
   storage: Storage;
   webSocket: Class<WebSocket>;
-
-  // Messaging Client private instance members.
   socket: ?WebSocket;
-  /* true once we have received an acknowledgement to a CONNECT packet. */
+
+  // We have received a CONNACK and not subsequently disconnected
   connected = false;
-  /* The largest message identifier allowed, may not be larger than 2**16 but
-   * if set smaller reduces the maximum number of outbound messages allowed.
-   */
-  maxMessageIdentifier = 65536;
+
+  // The largest permitted message ID, effectively number of in-flight outbound messages.
+  // Must be <=65536, the maximum permitted by the protocol
+  maxOutboundInFlight = 65536;
   connectOptions: ?ConnectOptions;
   onConnectionLost: ?Function;
   onMessageDelivered: ?Function;
@@ -57,33 +56,22 @@ class ClientImplementation {
   _traceBuffer = null;
   _MAX_TRACE_ENTRIES = 100;
 
-  // Create private instance-only message queue
   // Internal queue of messages to be sent, in sending order.
-  _msg_queue: WireMessage[] = [];
+  _messagesAwaitingDispatch: (WireMessage | PublishMessage)[] = [];
 
   // Messages we have sent and are expecting a response for, indexed by their respective message ids.
-  _sentMessages: { [key: string]: WireMessage } = {};
+  _outboundMessagesInFlight: { [key: string]: WireMessage | PublishMessage } = {};
 
-  // Messages we have received and acknowleged and are expecting a confirm message for
-  // indexed by their respective message ids.
-  _receivedMessages: { [key: string]: WireMessage } = {};
+  // Messages we have received and acknowleged and are expecting a confirm message for indexed by their respective message ids.
+  _receivedMessagesAwaitingAckConfirm: { [key: string]: WireMessage | PublishMessage } = {};
 
-  // Unique identifier for SEND messages, incrementing
-  // counter as messages are sent.
-  _message_identifier: number = 1;
+  // Unique identifier for outbound messages, incrementing counter as messages are sent.
+  _nextMessageId: number = 1;
 
   // Used to determine the transmission sequence of stored sent messages.
   _sequence: number = 0;
 
-  // Internal list of callbacks to be executed when messages
-  // have been successfully sent over web socket, e.g. disconnect
-  // when it doesn't have to wait for ACK, just message is dispatched.
-  _notify_msg_sent: { [key: WireMessage]: Function } = {};
-
-  // Local storagekeys are qualified with the following string.
-  // The conditional inclusion of path in the key is for backward
-  // compatibility to when the path was not configurable and assumed to
-  // be /mqtt
+  // Local storage keys are qualified with this.
   _localKey: string;
 
   /**
@@ -130,7 +118,7 @@ class ClientImplementation {
 
   connect(connectOptions: ConnectOptions) {
     const maskedCopy = { ...connectOptions };
-    if (maskedCopy.type === 1 && maskedCopy.password) {
+    if (maskedCopy.password) {
       maskedCopy.password = 'REDACTED';
     }
     this._trace('Client.connect', maskedCopy, this.socket, this.connected);
@@ -143,8 +131,51 @@ class ClientImplementation {
     }
 
     this.connectOptions = connectOptions;
+    this.connected = false;
+    this.socket = new this.webSocket(this.uri, ['mqtt' + (connectOptions.mqttVersion === 3 ? 'v3.1' : '')]);
+    this.socket.binaryType = 'arraybuffer';
 
-    this._doConnect(this.uri);
+    // When the socket is open, this client will send the CONNECT WireMessage using the saved parameters.
+    this.socket.onopen = () => {
+      const { willMessage, mqttVersion, userName, password, cleanSession, keepAliveInterval } = connectOptions;
+      // Send the CONNECT message object.
+
+      const wireMessage = new ConnectMessage({
+        cleanSession,
+        userName,
+        password,
+        mqttVersion,
+        willMessage,
+        keepAliveInterval,
+        clientId: this.clientId
+      });
+
+      this._trace('socket.send', { ...wireMessage, options: maskedCopy });
+
+      this.socket && (this.socket.onopen = () => null);
+      this.socket && (this.socket.send(wireMessage.encode()));
+    };
+
+    this.socket.onmessage = (event) => {
+      this._trace('socket.onmessage', event.data);
+      const messages = this._deframeMessages(event.data);
+      messages && messages.forEach(message => this._handleMessage(message));
+    };
+    this.socket.onerror = (error: { data?: string }) =>
+      this._disconnected(ERROR.SOCKET_ERROR.code, format(ERROR.SOCKET_ERROR, [error.data || ' Unknown socket error']));
+    this.socket.onclose = () => this._disconnected(ERROR.SOCKET_CLOSE.code, format(ERROR.SOCKET_CLOSE));
+
+    if (connectOptions.keepAliveInterval > 0) {
+      //Cast this to any to deal with flow/IDE bug: https://github.com/facebook/flow/issues/2235#issuecomment-239357626
+      this.sendPinger = new Pinger((this: any), connectOptions.keepAliveInterval);
+      this.receivePinger = new Pinger((this: any), connectOptions.keepAliveInterval);
+    }
+
+    if (connectOptions.timeout) {
+      this._connectTimeout = setTimeout(() => {
+        this._disconnected(ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT));
+      }, connectOptions.timeout);
+    }
   }
 
   subscribe(filter: string, subscribeOptions: { onSuccess: () => void, onFailure: (Error) => void, qos: 0 | 1 | 2, timeout: number }) {
@@ -159,15 +190,13 @@ class ClientImplementation {
     wireMessage.requestedQos = [subscribeOptions.qos || 0];
 
     if (subscribeOptions.onSuccess) {
-      wireMessage.onSuccess = function (grantedQos) {
+      wireMessage.subAckReceived = function (grantedQos) {
         subscribeOptions.onSuccess({ grantedQos: grantedQos });
       };
     }
 
     if (subscribeOptions.onFailure) {
-      wireMessage.onFailure = function (errorCode) {
-        subscribeOptions.onFailure(new Error('Socket error', errorCode));
-      };
+      wireMessage.onFailure = subscribeOptions.onFailure;
     }
 
     if (subscribeOptions.timeout && subscribeOptions.onFailure) {
@@ -178,7 +207,7 @@ class ClientImplementation {
 
     // All subscriptions return a SUBACK.
     this._requires_ack(wireMessage);
-    this._schedule_message(wireMessage);
+    this._scheduleMessage(wireMessage);
   }
 
   /** @ignore */
@@ -193,7 +222,7 @@ class ClientImplementation {
     wireMessage.topics = [filter];
 
     if (unsubscribeOptions.onSuccess) {
-      wireMessage.callback = function () {
+      wireMessage.unSubAckReceived = function () {
         unsubscribeOptions.onSuccess();
       };
     }
@@ -205,7 +234,7 @@ class ClientImplementation {
 
     // All unsubscribes return a SUBACK.
     this._requires_ack(wireMessage);
-    this._schedule_message(wireMessage);
+    this._scheduleMessage(wireMessage);
   }
 
   send(message: Message) {
@@ -215,15 +244,15 @@ class ClientImplementation {
       throw new Error(format(ERROR.INVALID_STATE, ['not connected']));
     }
 
-    const wireMessage = new WireMessage(MESSAGE_TYPE.PUBLISH);
-    wireMessage.payloadMessage = message;
+    const wireMessage = new PublishMessage(message);
 
     if (message.qos > 0) {
       this._requires_ack(wireMessage);
     } else if (this.onMessageDelivered) {
-      this._notify_msg_sent[wireMessage] = this.onMessageDelivered(wireMessage.payloadMessage);
+      const onMessageDelivered = this.onMessageDelivered;
+      wireMessage.onDispatched = () => onMessageDelivered(wireMessage.payloadMessage);
     }
-    this._schedule_message(wireMessage);
+    this._scheduleMessage(wireMessage);
   }
 
   disconnect() {
@@ -238,20 +267,22 @@ class ClientImplementation {
     // Run the disconnected call back as soon as the message has been sent,
     // in case of a failure later on in the disconnect processing.
     // as a consequence, the _disconnected call back may be run several times.
-    this._notify_msg_sent[wireMessage] = () => this._disconnected();
+    wireMessage.onDispatched = () => {
+      this._disconnected();
+    };
 
-    this._schedule_message(wireMessage);
+    this._scheduleMessage(wireMessage);
   }
 
   getTraceLog() {
     if (this._traceBuffer !== null) {
       this._trace('Client.getTraceLog', new Date());
-      this._trace('Client.getTraceLog in flight messages', Object.keys(this._sentMessages).length);
-      Object.keys(this._sentMessages).forEach((key) => {
-        this._trace('_sentMessages ', key, this._sentMessages[key]);
+      this._trace('Client.getTraceLog in flight messages', Object.keys(this._outboundMessagesInFlight).length);
+      Object.keys(this._outboundMessagesInFlight).forEach((key) => {
+        this._trace('_outboundMessagesInFlight ', key, this._outboundMessagesInFlight[key]);
       });
-      Object.keys(this._receivedMessages).forEach((key) => {
-        this._trace('_receivedMessages ', key, this._receivedMessages[key]);
+      Object.keys(this._receivedMessagesAwaitingAckConfirm).forEach((key) => {
+        this._trace('_receivedMessagesAwaitingAckConfirm ', key, this._receivedMessagesAwaitingAckConfirm[key]);
       });
       return this._traceBuffer;
     }
@@ -268,51 +299,21 @@ class ClientImplementation {
     this._traceBuffer = null;
   }
 
-  _doConnect(wsurl: string) {
-    const connectOptions = this.connectOptions;
-    invariant(connectOptions, format(ERROR.INVALID_STATE, ['_doConnect called but connectOptions not set']));
-    // When the socket is open, this client will send the CONNECT WireMessage using the saved parameters.
-    this.connected = false;
-    if (connectOptions.mqttVersion && connectOptions.mqttVersion < 4) {
-      this.socket = new this.webSocket(wsurl, ['mqttv3.1']);
-    } else {
-      this.socket = new this.webSocket(wsurl, ['mqtt']);
-    }
-    this.socket.binaryType = 'arraybuffer';
-
-    this.socket.onopen = () => this._on_socket_open();
-    this.socket.onmessage = (event) => this._on_socket_message(event);
-    this.socket.onerror = (error) => this._on_socket_error(error);
-    this.socket.onclose = () => this._on_socket_close();
-
-    if (connectOptions.keepAliveInterval > 0) {
-      //Cast this to any to deal with flow/IDE bug: https://github.com/facebook/flow/issues/2235#issuecomment-239357626
-      this.sendPinger = new Pinger((this: any), connectOptions.keepAliveInterval);
-      this.receivePinger = new Pinger((this: any), connectOptions.keepAliveInterval);
-    }
-
-    if (connectOptions.timeout) {
-      this._connectTimeout = setTimeout(() => {
-        this._disconnected(ERROR.CONNECT_TIMEOUT.code, format(ERROR.CONNECT_TIMEOUT));
-      }, connectOptions.timeout);
-    }
-  }
-
 
   // Schedule a new message to be sent over the WebSockets
   // connection. CONNECT messages cause WebSocket connection
   // to be started. All other messages are queued internally
   // until this has happened. When WS connection starts, process
   // all outstanding messages.
-  _schedule_message(message: WireMessage) {
-    this._msg_queue.push(message);
+  _scheduleMessage(message: WireMessage | PublishMessage) {
+    this._messagesAwaitingDispatch.push(message);
     // Process outstanding messages in the queue if we have an  open socket, and have received CONNACK.
     if (this.connected) {
       this._process_queue();
     }
   }
 
-  store(prefix: string, wireMessage: WireMessage) {
+  store(prefix: string, wireMessage: PublishMessage) {
     const messageIdentifier = wireMessage.messageIdentifier;
     invariant(messageIdentifier, format(ERROR.INVALID_STATE, ['Cannot store a WireMessage with no messageIdentifier']));
     const storedMessage: any = { type: wireMessage.type, messageIdentifier, version: 1 };
@@ -366,7 +367,7 @@ class ClientImplementation {
     const value = this.storage.getItem(key);
     const storedMessage = JSON.parse(value);
 
-    const wireMessage = new WireMessage(storedMessage.type, storedMessage);
+    let wireMessage: PublishMessage;
 
     switch (storedMessage.type) {
       case MESSAGE_TYPE.PUBLISH:
@@ -390,7 +391,7 @@ class ClientImplementation {
         if (storedMessage.payloadMessage.retained) {
           payloadMessage.retained = true;
         }
-        wireMessage.payloadMessage = payloadMessage;
+        wireMessage = new PublishMessage(payloadMessage, storedMessage.messageIdentifier);
 
         break;
 
@@ -399,27 +400,27 @@ class ClientImplementation {
     }
 
     if (key.indexOf('Sent:' + this._localKey) === 0) {
-      invariant(wireMessage.payloadMessage, format(ERROR.INVALID_STATE, ['Stored WireMessage with no payloadMessage']));
       wireMessage.payloadMessage.duplicate = true;
       invariant(wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
-      this._sentMessages[wireMessage.messageIdentifier.toString()] = wireMessage;
+      this._outboundMessagesInFlight[wireMessage.messageIdentifier.toString()] = wireMessage;
     } else if (key.indexOf('Received:' + this._localKey) === 0) {
       invariant(wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
-      this._receivedMessages[wireMessage.messageIdentifier.toString()] = wireMessage;
+      this._receivedMessagesAwaitingAckConfirm[wireMessage.messageIdentifier.toString()] = wireMessage;
     }
   }
 
   _process_queue() {
     // Process messages in order they were added
     // Send all queued messages down socket connection
-    this._msg_queue.reverse().forEach(message => {
-      this._socket_send(message);
-      // Notify listeners that message was successfully sent
-      if (this._notify_msg_sent[message]) {
-        this._notify_msg_sent[message]();
-        delete this._notify_msg_sent[message];
-      }
+
+    const socket = this.socket;
+    this._messagesAwaitingDispatch.reverse().forEach(wireMessage => {
+      this._trace('Client._socketSend', wireMessage);
+      socket && socket.send(wireMessage.encode());
+      wireMessage.onDispatched && wireMessage.onDispatched();
     });
+
+    this.sendPinger && this.sendPinger.reset();
   }
 
   /**
@@ -427,56 +428,27 @@ class ClientImplementation {
    * messages and set an unused identifier in this message.
    * @ignore
    */
-  _requires_ack(wireMessage: WireMessage) {
-    const messageCount = Object.keys(this._sentMessages).length;
-    if (messageCount > this.maxMessageIdentifier) {
+  _requires_ack(wireMessage: WireMessage | PublishMessage) {
+    const messageCount = Object.keys(this._outboundMessagesInFlight).length;
+    if (messageCount > this.maxOutboundInFlight) {
       throw Error('Too many messages:' + messageCount);
     }
 
-    while (this._sentMessages[this._message_identifier.toString()] !== undefined) {
-      this._message_identifier++;
+    while (this._outboundMessagesInFlight[this._nextMessageId.toString()] !== undefined) {
+      this._nextMessageId++;
     }
-    wireMessage.messageIdentifier = this._message_identifier;
-    this._sentMessages[wireMessage.messageIdentifier.toString()] = wireMessage;
-    if (wireMessage.type === MESSAGE_TYPE.PUBLISH) {
+    wireMessage.messageIdentifier = this._nextMessageId;
+    this._outboundMessagesInFlight[wireMessage.messageIdentifier.toString()] = wireMessage;
+    if (wireMessage instanceof PublishMessage) {
       this.store('Sent:', wireMessage);
     }
-    if (this._message_identifier === this.maxMessageIdentifier) {
-      this._message_identifier = 1;
+    if (this._nextMessageId === this.maxOutboundInFlight) {
+      // Next time we will search for the first unused ID up from 1
+      this._nextMessageId = 1;
     }
   }
 
-  /**
-   * Called when the underlying websocket has been opened.
-   * @ignore
-   */
-  _on_socket_open() {
-    invariant(this.connectOptions, format(ERROR.INVALID_STATE, ['_on_socket_open invoked but connectOptions not set']));
-    const { willMessage, mqttVersion, userName, password, cleanSession, keepAliveInterval } = this.connectOptions;
-
-    // Send the CONNECT message object.
-    this._socket_send(new ConnectMessage({
-      cleanSession,
-      userName,
-      password,
-      mqttVersion,
-      willMessage,
-      keepAliveInterval,
-      clientId: this.clientId
-    }));
-  }
-
-  /**
-   * Called when the underlying websocket has received a complete packet.
-   * @ignore
-   */
-  _on_socket_message(event: { data: mixed }) {
-    this._trace('Client._on_socket_message', event.data);
-    const messages = this._deframeMessages(event.data);
-    messages && messages.forEach(message => this._handleMessage(message));
-  }
-
-  _deframeMessages(data: mixed): ?WireMessage[] {
+  _deframeMessages(data: mixed): ?(WireMessage | PublishMessage)[] {
     let byteArray = new Uint8Array(data);
     if (this.receiveBuffer) {
       const receiveBufferLength = this.receiveBuffer.length;
@@ -488,7 +460,7 @@ class ClientImplementation {
     }
     try {
       let offset = 0;
-      let messages = [];
+      let messages: (WireMessage | PublishMessage)[] = [];
       while (offset < byteArray.length) {
         const result = decodeMessage(byteArray, offset);
         const wireMessage = result[0];
@@ -508,33 +480,39 @@ class ClientImplementation {
     }
   }
 
-  _handleMessage(wireMessage: WireMessage) {
+  _handleMessage(wireMessage: WireMessage | PublishMessage) {
 
     this._trace('Client._handleMessage', wireMessage);
     const connectOptions = this.connectOptions;
     invariant(connectOptions, format(ERROR.INVALID_STATE, ['_handleMessage invoked but connectOptions not set']));
 
     try {
-      let sentMessage: WireMessage, receivedMessage: WireMessage, messageIdentifier;
+      if (wireMessage instanceof PublishMessage) {
+        this._receivePublish(wireMessage);
+        return;
+      }
+
+      let sentMessage: WireMessage | PublishMessage, receivedMessage: WireMessage | PublishMessage, messageIdentifier;
+
       switch (wireMessage.type) {
         case MESSAGE_TYPE.CONNACK:
           clearTimeout(this._connectTimeout);
 
           // If we have started using clean session then clear up the local state.
           if (connectOptions.cleanSession) {
-            Object.keys(this._sentMessages).forEach((key) => {
-              sentMessage = this._sentMessages[key];
+            Object.keys(this._outboundMessagesInFlight).forEach((key) => {
+              sentMessage = this._outboundMessagesInFlight[key];
               invariant(messageIdentifier = sentMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
               this.storage.removeItem('Sent:' + this._localKey + messageIdentifier);
             });
-            this._sentMessages = {};
+            this._outboundMessagesInFlight = {};
 
-            Object.keys(this._receivedMessages).forEach((key) => {
-              receivedMessage = this._receivedMessages[key];
+            Object.keys(this._receivedMessagesAwaitingAckConfirm).forEach((key) => {
+              receivedMessage = this._receivedMessagesAwaitingAckConfirm[key];
               invariant(messageIdentifier = receivedMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['Stored WireMessage with no messageIdentifier']));
               this.storage.removeItem('Received:' + this._localKey + messageIdentifier);
             });
-            this._receivedMessages = {};
+            this._receivedMessagesAwaitingAckConfirm = {};
           }
           // Client connected and ready for business.
           if (wireMessage.returnCode === 0) {
@@ -545,14 +523,14 @@ class ClientImplementation {
           }
 
           // Resend messages. Sort sentMessages into the original sent order.
-          const sequencedMessages = Object.keys(this._sentMessages).map(key => this._sentMessages[key]).sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+          const sequencedMessages = Object.keys(this._outboundMessagesInFlight).map(key => this._outboundMessagesInFlight[key]).sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
 
           sequencedMessages.forEach((sequencedMessage) => {
             invariant(messageIdentifier = sequencedMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBREL WireMessage with no messageIdentifier']));
-            if (sequencedMessage.type === MESSAGE_TYPE.PUBLISH && sequencedMessage.pubRecReceived) {
-              this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier }));
+            if (sequencedMessage instanceof PublishMessage && sequencedMessage.pubRecReceived) {
+              this._scheduleMessage(new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier }));
             } else {
-              this._schedule_message(sequencedMessage);
+              this._scheduleMessage(sequencedMessage);
             }
           });
 
@@ -563,18 +541,14 @@ class ClientImplementation {
           this._process_queue();
           break;
 
-        case MESSAGE_TYPE.PUBLISH:
-          this._receivePublish(wireMessage);
-          break;
-
         case MESSAGE_TYPE.PUBACK:
           invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBACK WireMessage with no messageIdentifier']));
-          sentMessage = this._sentMessages[messageIdentifier.toString()];
+          sentMessage = this._outboundMessagesInFlight[messageIdentifier.toString()];
           // If this is a re flow of a PUBACK after we have restarted receivedMessage will not exist.
           if (sentMessage) {
-            delete this._sentMessages[messageIdentifier.toString()];
+            delete this._outboundMessagesInFlight[messageIdentifier.toString()];
             this.storage.removeItem('Sent:' + this._localKey + messageIdentifier);
-            if (this.onMessageDelivered) {
+            if (this.onMessageDelivered && sentMessage instanceof PublishMessage) {
               this.onMessageDelivered(sentMessage.payloadMessage);
             }
           }
@@ -582,43 +556,43 @@ class ClientImplementation {
 
         case MESSAGE_TYPE.PUBREC:
           invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBREC WireMessage with no messageIdentifier']));
-          sentMessage = this._sentMessages[messageIdentifier.toString()];
+          sentMessage = this._outboundMessagesInFlight[messageIdentifier.toString()];
           // If this is a re flow of a PUBREC after we have restarted receivedMessage will not exist.
-          if (sentMessage) {
+          if (sentMessage && sentMessage instanceof PublishMessage) {
             sentMessage.pubRecReceived = true;
             const pubRelMessage = new WireMessage(MESSAGE_TYPE.PUBREL, { messageIdentifier });
             this.store('Sent:', sentMessage);
-            this._schedule_message(pubRelMessage);
+            this._scheduleMessage(pubRelMessage);
           }
           break;
 
         case MESSAGE_TYPE.PUBREL:
           invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBREL WireMessage with no messageIdentifier']));
-          receivedMessage = this._receivedMessages[messageIdentifier.toString()];
+          receivedMessage = this._receivedMessagesAwaitingAckConfirm[messageIdentifier.toString()];
           this.storage.removeItem('Received:' + this._localKey + messageIdentifier);
           // If this is a re flow of a PUBREL after we have restarted receivedMessage will not exist.
-          if (receivedMessage) {
+          if (receivedMessage && receivedMessage instanceof PublishMessage) {
             this._receiveMessage(receivedMessage);
-            delete this._receivedMessages[messageIdentifier.toString()];
+            delete this._receivedMessagesAwaitingAckConfirm[messageIdentifier.toString()];
           }
           // Always flow PubComp, we may have previously flowed PubComp but the server lost it and restarted.
           const pubCompMessage = new WireMessage(MESSAGE_TYPE.PUBCOMP, { messageIdentifier });
-          this._schedule_message(pubCompMessage);
+          this._scheduleMessage(pubCompMessage);
           break;
 
         case MESSAGE_TYPE.PUBCOMP:
           invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['PUBCOMP WireMessage with no messageIdentifier']));
-          sentMessage = this._sentMessages[messageIdentifier.toString()];
-          delete this._sentMessages[messageIdentifier.toString()];
+          sentMessage = this._outboundMessagesInFlight[messageIdentifier.toString()];
+          delete this._outboundMessagesInFlight[messageIdentifier.toString()];
           this.storage.removeItem('Sent:' + this._localKey + messageIdentifier);
-          if (this.onMessageDelivered) {
+          if (this.onMessageDelivered && sentMessage instanceof PublishMessage) {
             this.onMessageDelivered(sentMessage.payloadMessage);
           }
           break;
 
         case MESSAGE_TYPE.SUBACK:
           invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['SUBACK WireMessage with no messageIdentifier']));
-          sentMessage = this._sentMessages[messageIdentifier.toString()];
+          sentMessage = this._outboundMessagesInFlight[messageIdentifier.toString()];
           if (sentMessage) {
             if (sentMessage.timeOut) {
               clearTimeout(sentMessage.timeOut);
@@ -626,27 +600,25 @@ class ClientImplementation {
             invariant(wireMessage.returnCode instanceof Uint8Array, format(ERROR.INVALID_STATE, ['SUBACK WireMessage with invalid returnCode']));
             // This will need to be fixed when we add multiple topic support
             if (wireMessage.returnCode[0] === 0x80) {
-              if (sentMessage.onFailure) {
-                sentMessage.onFailure(wireMessage.returnCode);
+              if ((sentMessage instanceof WireMessage) && sentMessage.onFailure) {
+                sentMessage.onFailure(new Error('Suback error', wireMessage.returnCode));
               }
-            } else if (sentMessage.onSuccess) {
-              sentMessage.onSuccess(wireMessage.returnCode);
+            } else if ((sentMessage instanceof WireMessage) && sentMessage.subAckReceived) {
+              sentMessage.subAckReceived(wireMessage.returnCode[0]);
             }
-            delete this._sentMessages[messageIdentifier.toString()];
+            delete this._outboundMessagesInFlight[messageIdentifier.toString()];
           }
           break;
 
         case MESSAGE_TYPE.UNSUBACK:
           invariant(messageIdentifier = wireMessage.messageIdentifier, format(ERROR.INVALID_STATE, ['UNSUBACK WireMessage with no messageIdentifier']));
-          sentMessage = this._sentMessages[messageIdentifier.toString()];
-          if (sentMessage) {
+          sentMessage = this._outboundMessagesInFlight[messageIdentifier.toString()];
+          if (sentMessage && (sentMessage instanceof WireMessage) && sentMessage.type === MESSAGE_TYPE.UNSUBSCRIBE) {
             if (sentMessage.timeOut) {
               clearTimeout(sentMessage.timeOut);
             }
-            if (sentMessage.callback) {
-              sentMessage.callback();
-            }
-            delete this._sentMessages[messageIdentifier.toString()];
+            sentMessage.unSubAckReceived && sentMessage.unSubAckReceived();
+            delete this._outboundMessagesInFlight[messageIdentifier.toString()];
           }
 
           break;
@@ -670,30 +642,15 @@ class ClientImplementation {
   }
 
   /** @ignore */
-  _on_socket_error(error: { data?: string }) {
-    this._disconnected(ERROR.SOCKET_ERROR.code, format(ERROR.SOCKET_ERROR, [error.data || ' Unknown socket error']));
-  }
-
-  /** @ignore */
-  _on_socket_close() {
-    this._disconnected(ERROR.SOCKET_CLOSE.code, format(ERROR.SOCKET_CLOSE));
-  }
-
-  /** @ignore */
-  _socket_send(wireMessage: WireMessage | ConnectMessage) {
-    const maskedCopy = { ...wireMessage };
-    if (maskedCopy.type === MESSAGE_TYPE.CONNECT && maskedCopy.password) {
-      maskedCopy.password = 'REDACTED';
-    }
-    this._trace('Client._socket_send', maskedCopy);
-
+  _socketSend(wireMessage: WireMessage) {
+    this._trace('Client._socketSend', wireMessage);
     this.socket && this.socket.send(wireMessage.encode());
     /* We have proved to the server we are alive. */
     this.sendPinger && this.sendPinger.reset();
   }
 
   /** @ignore */
-  _receivePublish(wireMessage: WireMessage) {
+  _receivePublish(wireMessage: PublishMessage) {
     const { payloadMessage, messageIdentifier } = wireMessage;
     invariant(payloadMessage, format(ERROR.INVALID_STATE, ['PUBLISH WireMessage with no payloadMessage']));
     switch (payloadMessage.qos) {
@@ -703,15 +660,15 @@ class ClientImplementation {
 
       case 1:
         invariant(messageIdentifier, format(ERROR.INVALID_STATE, ['QoS 1 WireMessage with no messageIdentifier']));
-        this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBACK, { messageIdentifier }));
+        this._scheduleMessage(new WireMessage(MESSAGE_TYPE.PUBACK, { messageIdentifier }));
         this._receiveMessage(wireMessage);
         break;
 
       case 2:
         invariant(messageIdentifier, format(ERROR.INVALID_STATE, ['QoS 2 WireMessage with no messageIdentifier']));
-        this._receivedMessages[messageIdentifier.toString()] = wireMessage;
+        this._receivedMessagesAwaitingAckConfirm[messageIdentifier.toString()] = wireMessage;
         this.store('Received:', wireMessage);
-        this._schedule_message(new WireMessage(MESSAGE_TYPE.PUBREC, { messageIdentifier }));
+        this._scheduleMessage(new WireMessage(MESSAGE_TYPE.PUBREC, { messageIdentifier }));
         break;
 
       default:
@@ -720,7 +677,7 @@ class ClientImplementation {
   }
 
   /** @ignore */
-  _receiveMessage(wireMessage: WireMessage) {
+  _receiveMessage(wireMessage: PublishMessage) {
     if (this.onMessageArrived) {
       this.onMessageArrived(wireMessage.payloadMessage);
     }
@@ -742,8 +699,7 @@ class ClientImplementation {
       clearTimeout(this._connectTimeout);
     }
     // Clear message buffers.
-    this._msg_queue = [];
-    this._notify_msg_sent = {};
+    this._messagesAwaitingDispatch = [];
 
     if (this.socket) {
       // Cancel all socket callbacks so that they cannot be driven again by this socket.
@@ -757,26 +713,21 @@ class ClientImplementation {
       this.socket = null;
     }
 
-    const connectOptions = this.connectOptions;
+    if (errorCode === undefined) {
+      errorCode = ERROR.OK.code;
+      errorText = format(ERROR.OK);
+    }
 
-
-
-      if (errorCode === undefined) {
-        errorCode = ERROR.OK.code;
-        errorText = format(ERROR.OK);
+    // Run any application callbacks last as they may attempt to reconnect and hence create a new socket.
+    if (this.connected) {
+      this.connected = false;
+      // Execute the connectionLostCallback if there is one, and we were connected.
+      this.onConnectionLost && this.onConnectionLost({ errorCode: errorCode, errorMessage: errorText });
+    } else {
+      // Otherwise we never had a connection, so indicate that the connect has failed.
+      if (this.connectOptions && this.connectOptions.onFailure) {
+        this.connectOptions.onFailure(new Error(errorText, errorCode));
       }
-
-      // Run any application callbacks last as they may attempt to reconnect and hence create a new socket.
-      if (this.connected) {
-        this.connected = false;
-        // Execute the connectionLostCallback if there is one, and we were connected.
-        this.onConnectionLost && this.onConnectionLost({ errorCode: errorCode, errorMessage: errorText });
-      } else {
-        invariant(connectOptions, format(ERROR.INVALID_STATE, ['connectOptions not set']));
-        // Otherwise we never had a connection, so indicate that the connect has failed.
-        if (connectOptions.onFailure) {
-          connectOptions.onFailure(new Error(errorText, errorCode));
-        }
     }
   }
 
