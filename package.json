@@ -17,7 +17,9 @@
     "client"
   ],
   "repository": "rh389/react-native-paho-mqtt",
-  "dependencies": {},
+  "dependencies": {
+    "events": "^1.1.1"
+  },
   "devDependencies": {
     "babel": "^6.5.2",
     "babel-cli": "^6.22.2",
