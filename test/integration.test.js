@@ -14,29 +14,19 @@ test('client is set up correctly', function () {
 });
 
 describe('Integration tests', () => {
-  beforeAll(async () => {
-    await startBroker();
-    await client.connect({ mqttVersion });
-  });
+  beforeAll(() => startBroker().then(() => client.connect({ mqttVersion })));
 
-  test('should send and receive a message', async (done) => {
+  test('should send and receive a message', (done) => {
     client.on('messageReceived', (message) => {
       expect(message.payloadString).toEqual('Hello');
       done();
     });
     const message = new Message('Hello');
-    message.destinationName = '/World';
-    await client.subscribe('/World');
-    await client.send(message);
+    message.destinationName = 'World';
+    client.subscribe('World').then(() => client.send(message));
   });
 
-  test('should disconnect and reconnect cleanly', async () => {
-    await client.disconnect();
-    await client.connect({ mqttVersion });
-  });
+  test('should disconnect and reconnect cleanly', () => client.disconnect().then(() => client.connect({ mqttVersion })));
 
-  afterAll(async () => {
-    await client.disconnect();
-    await stopBroker();
-  });
+  afterAll(() => client.disconnect().then(() => stopBroker()));
 });
