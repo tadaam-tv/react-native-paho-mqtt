@@ -51,6 +51,7 @@ export function validate(obj: {}, keys: { [key: string]: string }) {
     if (keys.hasOwnProperty(key)) {
       let desiredType = keys[key];
       if (!(desiredType.indexOf('?') === 0 && (typeof obj[key] === 'undefined' || obj[key] === null))) {
+        desiredType = desiredType.replace(/^\?/, '');
         if (typeof obj[key] !== desiredType) {
           throw new Error(format(ERROR.INVALID_TYPE, [typeof obj[key], key]));
         }
