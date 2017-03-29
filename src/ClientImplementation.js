@@ -412,13 +412,15 @@ class ClientImplementation {
   _process_queue() {
     // Process messages in order they were added
     // Send all queued messages down socket connection
-
     const socket = this.socket;
-    this._messagesAwaitingDispatch.reverse().forEach(wireMessage => {
+
+    // Consume each message and remove it from the queue
+    let wireMessage;
+    while ((wireMessage = this._messagesAwaitingDispatch.shift())) {
       this._trace('Client._socketSend', wireMessage);
       socket && socket.send(wireMessage.encode());
       wireMessage.onDispatched && wireMessage.onDispatched();
-    });
+    }
 
     this.sendPinger && this.sendPinger.reset();
   }
