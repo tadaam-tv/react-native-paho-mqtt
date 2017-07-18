@@ -1,4 +1,4 @@
-/* @flow */
+/** @flow */
 
 import Message from './Message';
 import { decodeMessage, format, invariant } from './util';
@@ -48,8 +48,6 @@ class ClientImplementation {
   _connectTimeout: ?number;
   /* The sendPinger monitors how long we allow before we send data to prove to the server that we are alive. */
   sendPinger = null;
-  /* The receivePinger monitors how long we allow before we require evidence that the server is alive. */
-  receivePinger = null;
 
   receiveBuffer: ?Uint8Array = null;
 
@@ -168,7 +166,6 @@ class ClientImplementation {
     if (connectOptions.keepAliveInterval > 0) {
       //Cast this to any to deal with flow/IDE bug: https://github.com/facebook/flow/issues/2235#issuecomment-239357626
       this.sendPinger = new Pinger((this: any), connectOptions.keepAliveInterval);
-      this.receivePinger = new Pinger((this: any), connectOptions.keepAliveInterval);
     }
 
     if (connectOptions.timeout) {
@@ -450,7 +447,7 @@ class ClientImplementation {
     }
   }
 
-  _deframeMessages(data: mixed): ?(WireMessage | PublishMessage)[] {
+  _deframeMessages(data: mixed): ?Array<(WireMessage | PublishMessage)> {
     let byteArray = new Uint8Array(data);
     if (this.receiveBuffer) {
       const receiveBufferLength = this.receiveBuffer.length;
@@ -626,8 +623,7 @@ class ClientImplementation {
           break;
 
         case MESSAGE_TYPE.PINGRESP:
-          // The sendPinger or receivePinger may have sent a ping, the receivePinger has already been reset.
-          this.sendPinger && this.sendPinger.reset();
+          // We don't care whether the server is still there (yet)
           break;
 
         case MESSAGE_TYPE.DISCONNECT:
@@ -647,7 +643,7 @@ class ClientImplementation {
   _socketSend(wireMessage: WireMessage) {
     this._trace('Client._socketSend', wireMessage);
     this.socket && this.socket.send(wireMessage.encode());
-    /* We have proved to the server we are alive. */
+    // We have proved to the server we are alive.
     this.sendPinger && this.sendPinger.reset();
   }
 
@@ -696,7 +692,6 @@ class ClientImplementation {
     this._trace('Client._disconnected', errorCode, errorText);
 
     this.sendPinger && this.sendPinger.cancel();
-    this.receivePinger && this.receivePinger.cancel();
     if (this._connectTimeout) {
       clearTimeout(this._connectTimeout);
     }
@@ -723,7 +718,7 @@ class ClientImplementation {
     // Run any application callbacks last as they may attempt to reconnect and hence create a new socket.
     if (this.connected) {
       this.connected = false;
-      // Execute the connectionLostCallback if there is one, and we were connected.
+      // Execute the onConnectionLost callback if there is one, and we were connected.
       this.onConnectionLost && this.onConnectionLost({ errorCode: errorCode, errorMessage: errorText });
     } else {
       // Otherwise we never had a connection, so indicate that the connect has failed.

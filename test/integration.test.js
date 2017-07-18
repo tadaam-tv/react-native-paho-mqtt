@@ -13,7 +13,7 @@ test('client is set up correctly', function () {
   expect(client.uri).toBe(uri);
 });
 
-describe('Integration tests', () => {
+describe('Basic integration tests', () => {
   beforeAll(() => startBroker().then(() => client.connect({ mqttVersion })));
 
   test('should send and receive a message', (done) => {
@@ -27,6 +27,24 @@ describe('Integration tests', () => {
   });
 
   test('should disconnect and reconnect cleanly', () => client.disconnect().then(() => client.connect({ mqttVersion })));
+
+  afterAll(() => client.disconnect().then(() => stopBroker()));
+});
+
+describe('Keep alive mechanism', () => {
+  beforeAll(() => startBroker().then(() => client.connect({ mqttVersion, keepAliveInterval: 1 })));
+
+  test('should send PINGREQ messages so that the server does not disconnect', () => {
+    return new Promise((resolve, reject) => {
+      const successTimer = setTimeout(resolve, 3000);
+      const onFail = (e) => {
+        clearTimeout(successTimer);
+        client.removeListener('connectionLost', onFail);
+        stopBroker().then(() => reject(new Error('Unexpected disconnection')));
+      };
+      client.on('connectionLost', onFail);
+    });
+  }, 5000);
 
   afterAll(() => client.disconnect().then(() => stopBroker()));
 });

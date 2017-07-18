@@ -296,7 +296,7 @@ export function decodeMessage(input: Uint8Array, pos: number): [?WireMessage | P
       break;
 
     default:
+      wireMessage = new WireMessage(type);
   }
-
   return [wireMessage, endPos];
 }
