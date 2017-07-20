@@ -156,8 +156,10 @@ class ClientImplementation {
 
     this.socket.onmessage = (event) => {
       this._trace('socket.onmessage', event.data);
-      const messages = this._deframeMessages(event.data);
-      messages && messages.forEach(message => this._handleMessage(message));
+      if (event.data && event.data.length > 0) {
+        const messages = this._deframeMessages(event.data);
+        messages && messages.forEach(message => this._handleMessage(message));
+      }
     };
     this.socket.onerror = (error: { data?: string }) =>
       this._disconnected(ERROR.SOCKET_ERROR.code, format(ERROR.SOCKET_ERROR, [error.data || ' Unknown socket error']));
