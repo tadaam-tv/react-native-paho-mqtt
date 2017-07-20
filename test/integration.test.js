@@ -9,6 +9,8 @@ const client = new Client({
   storage,
 });
 
+client._client.traceFunction = (trace) => console.log(trace.message);
+
 test('client is set up correctly', function () {
   expect(client.uri).toBe(uri);
 });
