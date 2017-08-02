@@ -1,7 +1,11 @@
 # Eclipse Paho JavaScript client forked for React Native
-[![Build Status](https://travis-ci.org/rh389/react-native-paho-mqtt.svg?branch=master)](https://travis-ci.org/rh389/react-native-paho-mqtt)
+[![npm version](https://badge.fury.io/js/react-native-paho-mqtt.svg)](https://badge.fury.io/js/react-native-paho-mqtt) [![Build Status](https://travis-ci.org/rh389/react-native-paho-mqtt.svg?branch=master)](https://travis-ci.org/rh389/react-native-paho-mqtt)
 
 A fork of [paho-client](https://www.npmjs.com/package/paho-client), this project exists to provide an ES6-ready, Promise-based, react-native compatible version of the Eclipse Paho client
+
+### Compatibility note
+
+Due to a React Native binary websocket bug, this library will *not work* with React Native 0.46.0 on Android, but should be ok on other platforms. RN 0.47 and RN<=0.45 are fine on all platforms as far as I know.
 
 ### Documentation
 
