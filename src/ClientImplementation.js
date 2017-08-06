@@ -156,7 +156,7 @@ class ClientImplementation {
 
     this.socket.onmessage = (event) => {
       this._trace('socket.onmessage', event.data);
-      const messages = this._deframeMessages(event.data);
+      const messages = this._deframeMessages(((event.data:any):ArrayBuffer));
       messages && messages.forEach(message => this._handleMessage(message));
     };
     this.socket.onerror = (error: { data?: string }) =>
@@ -175,7 +175,7 @@ class ClientImplementation {
     }
   }
 
-  subscribe(filter: string, subscribeOptions: { onSuccess: () => void, onFailure: (Error) => void, qos: 0 | 1 | 2, timeout: number }) {
+  subscribe(filter: string, subscribeOptions: { onSuccess: ({ grantedQos: number }) => void, onFailure: (Error) => void, qos: 0 | 1 | 2, timeout: number }) {
     this._trace('Client.subscribe', filter, subscribeOptions);
 
     if (!this.connected) {
@@ -198,7 +198,7 @@ class ClientImplementation {
 
     if (subscribeOptions.timeout && subscribeOptions.onFailure) {
       wireMessage.timeOut = setTimeout(() => {
-        subscribeOptions.onFailure(new Error(format(ERROR.SUBSCRIBE_TIMEOUT), ERROR.SUBSCRIBE_TIMEOUT.code));
+        subscribeOptions.onFailure(new Error(format(ERROR.SUBSCRIBE_TIMEOUT)));
       }, subscribeOptions.timeout);
     }
 
@@ -225,7 +225,7 @@ class ClientImplementation {
     }
     if (unsubscribeOptions.timeout) {
       wireMessage.timeOut = setTimeout(() => {
-        unsubscribeOptions.onFailure(new Error(format(ERROR.UNSUBSCRIBE_TIMEOUT), ERROR.UNSUBSCRIBE_TIMEOUT.code));
+        unsubscribeOptions.onFailure(new Error(format(ERROR.UNSUBSCRIBE_TIMEOUT)));
       }, unsubscribeOptions.timeout);
     }
 
@@ -447,7 +447,7 @@ class ClientImplementation {
     }
   }
 
-  _deframeMessages(data: mixed): ?Array<(WireMessage | PublishMessage)> {
+  _deframeMessages(data: ArrayBuffer): ?Array<(WireMessage | PublishMessage)> {
     let byteArray = new Uint8Array(data);
     if (this.receiveBuffer) {
       const receiveBufferLength = this.receiveBuffer.length;
@@ -600,7 +600,7 @@ class ClientImplementation {
             // This will need to be fixed when we add multiple topic support
             if (wireMessage.returnCode[0] === 0x80) {
               if ((sentMessage instanceof WireMessage) && sentMessage.onFailure) {
-                sentMessage.onFailure(new Error('Suback error', wireMessage.returnCode));
+                sentMessage.onFailure(new Error('Suback error'));
               }
             } else if ((sentMessage instanceof WireMessage) && sentMessage.subAckReceived) {
               sentMessage.subAckReceived(wireMessage.returnCode[0]);
@@ -723,36 +723,29 @@ class ClientImplementation {
     } else {
       // Otherwise we never had a connection, so indicate that the connect has failed.
       if (this.connectOptions && this.connectOptions.onFailure) {
-        this.connectOptions.onFailure(new Error(errorText, errorCode));
+        this.connectOptions.onFailure(new Error(errorText));
       }
     }
   }
 
   /** @ignore */
-  _trace() {
+  _trace(...args: any) {
     // Pass trace message back to client's callback function
     const traceFunction = this.traceFunction;
     if (traceFunction) {
-      for (let i in arguments) {
-        if (arguments.hasOwnProperty(i) && typeof arguments[i] !== 'undefined') {
-          arguments[i] = JSON.stringify(arguments[i]);
-        }
-      }
-      traceFunction({ severity: 'Debug', message: Array.prototype.slice.call(arguments).join('') });
+      traceFunction({ severity: 'Debug', message: args.map(a => JSON.stringify(a)).join('')});
     }
 
     //buffer style trace
     if (this._traceBuffer !== null) {
-      for (let i = 0, max = arguments.length; i < max; i++) {
+      for (let i = 0, max = args.length; i < max; i++) {
         if (this._traceBuffer.length === this._MAX_TRACE_ENTRIES) {
           this._traceBuffer.shift();
         }
-        if (i === 0) {
-          this._traceBuffer.push(arguments[i]);
-        } else if (typeof arguments[i] === 'undefined') {
-          this._traceBuffer.push(arguments[i]);
+        if (i === 0 || typeof args[i] === 'undefined') {
+          this._traceBuffer.push(args[i]);
         } else {
-          this._traceBuffer.push('  ' + JSON.stringify(arguments[i]));
+          this._traceBuffer.push('  ' + JSON.stringify(args[i]));
         }
       }
     }
