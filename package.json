@@ -1,7 +1,7 @@
 {
   "name": "react-native-paho-mqtt",
   "description": "A fork of the Paho javascript client for use in React Native",
-  "version": "0.1.1",
+  "version": "0.1.1-1",
   "scripts": {
     "lint": "eslint .",
     "flow": "flow",
